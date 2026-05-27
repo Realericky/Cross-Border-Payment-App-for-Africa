@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useBeforeUnload } from 'react-router-dom';
 import { ArrowLeft, Send, ChevronDown, Users, Camera, Code, ArrowRightLeft, Wallet, AlertTriangle } from 'lucide-react';
 import api from '../utils/api';
 import { useExchangeRates } from '../hooks/useExchangeRates';
@@ -975,7 +975,26 @@ export default function SendMoney() {
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 space-y-2">
             <p className="text-yellow-400 font-semibold text-sm">{t('send.confirm_title')}</p>
             <div className="text-sm text-gray-300 space-y-1">
-              <p>{t('send.confirm_to')} <span className="font-mono text-xs">{form.recipient_address.slice(0, 20)}...</span></p>
+              <p>
+                {t('send.confirm_to')}{' '}
+                <span
+                  className="font-mono text-xs cursor-help border-b border-dotted border-gray-500"
+                  title={form.recipient_address}
+                  aria-label={`Full address: ${form.recipient_address}`}
+                >
+                  {form.recipient_address.slice(0, 10)}…{form.recipient_address.slice(-10)}
+                </span>
+                {' '}
+                <a
+                  href={`https://stellar.expert/explorer/${process.env.REACT_APP_STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet'}/account/${form.recipient_address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary-400 hover:text-primary-300 text-xs underline"
+                  aria-label="Verify address on Stellar Expert Explorer"
+                >
+                  Verify address ↗
+                </a>
+              </p>
               <p>{t('send.confirm_amount')} <span className="text-white font-semibold">{form.amount} {form.asset}</span></p>
               {feeXLM && (
                 <>
