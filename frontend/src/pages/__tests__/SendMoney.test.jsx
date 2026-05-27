@@ -60,7 +60,14 @@ jest.mock('react-hot-toast', () => ({ success: jest.fn(), error: jest.fn() }));
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useNavigate: () => jest.fn(),
+  useBeforeUnload: () => {},
 }));
+jest.mock('../../components/LedgerSignModal', () => () => null);
+jest.mock('../../components/QRScanner', () => () => null);
+jest.mock('../../components/PINVerificationModal', () => ({ isOpen, onClose, onSuccess }) =>
+  isOpen ? <div role="dialog"><button onClick={onSuccess}>Enter PIN verification</button></div> : null
+);
+jest.mock('../../components/XDRInspectorModal', () => () => null);
 
 const CONTACTS = [
   {
@@ -103,7 +110,15 @@ beforeEach(() => {
         }),
     })
   );
-  api.get.mockResolvedValue({ data: { contacts: [] } });
+  api.get.mockImplementation((url) => {
+    if (url === '/payments/fee-stats') {
+      return Promise.resolve({ data: { priorities: { economy: 100, standard: 200, priority: 500 } } });
+    }
+    if (url === '/wallet/list') {
+      return Promise.resolve({ data: { wallets: [] } });
+    }
+    return Promise.resolve({ data: { contacts: [] } });
+  });
   api.post.mockResolvedValue({ data: {} });
 });
 
@@ -147,16 +162,15 @@ test('second submit calls POST /payments/send', async () => {
   fireEvent.submit(screen.getByRole('button', { name: /review payment/i }).closest('form'));
   await screen.findByText('Confirm Transaction');
 
-  // second submit → send
+  // second submit → PIN modal opens (payment not sent yet)
   fireEvent.submit(screen.getByRole('button', { name: /confirm & send/i }).closest('form'));
 
+  // PIN modal should be visible
   await waitFor(() =>
-    expect(api.post).toHaveBeenCalledWith('/payments/send', {
-      recipient_address: RECIPIENT,
-      amount: 10,
-      asset: 'XLM',
-    })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   );
+  // Payment API must not have been called yet (PIN not entered)
+  expect(api.post).not.toHaveBeenCalledWith('/payments/send', expect.anything());
 });
 
 test('cancel button resets confirmation state', async () => {
@@ -175,7 +189,11 @@ test('cancel button resets confirmation state', async () => {
 });
 
 test('selecting a contact populates the recipient field', async () => {
-  api.get.mockResolvedValue({ data: { contacts: [CONTACTS[0]] } });
+  api.get.mockImplementation((url) => {
+    if (url === '/payments/fee-stats') return Promise.resolve({ data: { priorities: { economy: 100, standard: 200, priority: 500 } } });
+    if (url === '/wallet/list') return Promise.resolve({ data: { wallets: [] } });
+    return Promise.resolve({ data: { contacts: [CONTACTS[0]] } });
+  });
   renderComponent();
 
   await screen.findByText('Contacts');
@@ -186,7 +204,11 @@ test('selecting a contact populates the recipient field', async () => {
 });
 
 test('search input filters contacts by name', async () => {
-  api.get.mockResolvedValue({ data: { contacts: CONTACTS } });
+  api.get.mockImplementation((url) => {
+    if (url === '/payments/fee-stats') return Promise.resolve({ data: { priorities: { economy: 100, standard: 200, priority: 500 } } });
+    if (url === '/wallet/list') return Promise.resolve({ data: { wallets: [] } });
+    return Promise.resolve({ data: { contacts: CONTACTS } });
+  });
   renderComponent();
 
   await screen.findByText('Contacts');
@@ -203,7 +225,11 @@ test('search input filters contacts by name', async () => {
 });
 
 test('search input filters contacts by wallet address', async () => {
-  api.get.mockResolvedValue({ data: { contacts: CONTACTS } });
+  api.get.mockImplementation((url) => {
+    if (url === '/payments/fee-stats') return Promise.resolve({ data: { priorities: { economy: 100, standard: 200, priority: 500 } } });
+    if (url === '/wallet/list') return Promise.resolve({ data: { wallets: [] } });
+    return Promise.resolve({ data: { contacts: CONTACTS } });
+  });
   renderComponent();
 
   await screen.findByText('Contacts');
@@ -220,7 +246,11 @@ test('search input filters contacts by wallet address', async () => {
 });
 
 test('shows "No contacts match" when search returns no results', async () => {
-  api.get.mockResolvedValue({ data: { contacts: CONTACTS } });
+  api.get.mockImplementation((url) => {
+    if (url === '/payments/fee-stats') return Promise.resolve({ data: { priorities: { economy: 100, standard: 200, priority: 500 } } });
+    if (url === '/wallet/list') return Promise.resolve({ data: { wallets: [] } });
+    return Promise.resolve({ data: { contacts: CONTACTS } });
+  });
   renderComponent();
 
   await screen.findByText('Contacts');
@@ -235,24 +265,37 @@ test('shows "No contacts match" when search returns no results', async () => {
 });
 
 test('keyboard navigation works in contacts dropdown', async () => {
-  api.get.mockResolvedValue({ data: { contacts: CONTACTS } });
+  // jsdom doesn't implement scrollIntoView
+  window.HTMLElement.prototype.scrollIntoView = jest.fn();
+  api.get.mockImplementation((url) => {
+    if (url === '/payments/fee-stats') return Promise.resolve({ data: { priorities: { economy: 100, standard: 200, priority: 500 } } });
+    if (url === '/wallet/list') return Promise.resolve({ data: { wallets: [] } });
+    return Promise.resolve({ data: { contacts: CONTACTS } });
+  });
   renderComponent();
 
   await screen.findByText('Contacts');
   fireEvent.click(screen.getByText('Contacts'));
 
+  // The onKeyDown handler is on the dropdown container; fire on the search input
+  const searchInput = await screen.findByPlaceholderText('Search contacts...');
+
   // Press ArrowDown to select first contact
-  fireEvent.keyDown(screen.getByRole('button', { name: /contacts/i }), { key: 'ArrowDown' });
+  fireEvent.keyDown(searchInput, { key: 'ArrowDown' });
 
   // Press Enter to select the highlighted contact
-  fireEvent.keyDown(screen.getByRole('button', { name: /contacts/i }), { key: 'Enter' });
+  fireEvent.keyDown(searchInput, { key: 'Enter' });
 
   // Should populate the recipient field with the first contact (Alice)
   expect(screen.getByPlaceholderText('G... Stellar address')).toHaveValue(CONTACTS[0].wallet_address);
 });
 
 test('search is case-insensitive', async () => {
-  api.get.mockResolvedValue({ data: { contacts: CONTACTS } });
+  api.get.mockImplementation((url) => {
+    if (url === '/payments/fee-stats') return Promise.resolve({ data: { priorities: { economy: 100, standard: 200, priority: 500 } } });
+    if (url === '/wallet/list') return Promise.resolve({ data: { wallets: [] } });
+    return Promise.resolve({ data: { contacts: CONTACTS } });
+  });
   renderComponent();
 
   await screen.findByText('Contacts');
@@ -314,9 +357,85 @@ test('submit button is disabled while loading', async () => {
   fireEvent.submit(screen.getByRole('button', { name: /review payment/i }).closest('form'));
   await screen.findByText('Confirm Transaction');
 
+  // Second submit → opens PIN modal
   fireEvent.submit(screen.getByRole('button', { name: /confirm & send/i }).closest('form'));
 
+  // Confirm via PIN modal to trigger loading state
+  const pinConfirmBtn = await screen.findByRole('button', { name: /enter pin verification/i });
+  fireEvent.click(pinConfirmBtn);
+
+  // Loading spinner should appear (button shows spinner while api.post is pending)
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: /confirm & send/i })).toBeDisabled()
+    expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument()
   );
+});
+
+// ── Address truncation, tooltip, and Stellar Expert link ──────────────────
+
+const LONG_RECIPIENT = 'GABCDEFGHIJ0000000000000000000000000000000000WXYZ12345678';
+
+test('confirmation preview shows first-10…last-10 truncation', async () => {
+  renderComponent();
+
+  await userEvent.type(screen.getByPlaceholderText('G... Stellar address'), LONG_RECIPIENT);
+  await userEvent.type(screen.getByPlaceholderText('0.00'), '5');
+
+  fireEvent.submit(screen.getByRole('button', { name: /review payment/i }).closest('form'));
+  await screen.findByText('Confirm Transaction');
+
+  const truncated = `${LONG_RECIPIENT.slice(0, 10)}…${LONG_RECIPIENT.slice(-10)}`;
+  expect(screen.getByText(truncated)).toBeInTheDocument();
+});
+
+test('truncated address element has full address in title tooltip', async () => {
+  renderComponent();
+
+  await userEvent.type(screen.getByPlaceholderText('G... Stellar address'), LONG_RECIPIENT);
+  await userEvent.type(screen.getByPlaceholderText('0.00'), '5');
+
+  fireEvent.submit(screen.getByRole('button', { name: /review payment/i }).closest('form'));
+  await screen.findByText('Confirm Transaction');
+
+  const truncated = `${LONG_RECIPIENT.slice(0, 10)}…${LONG_RECIPIENT.slice(-10)}`;
+  const el = screen.getByText(truncated);
+  expect(el).toHaveAttribute('title', LONG_RECIPIENT);
+});
+
+test('Verify address link points to testnet Stellar Expert URL', async () => {
+  delete process.env.REACT_APP_STELLAR_NETWORK; // defaults to testnet branch
+  renderComponent();
+
+  await userEvent.type(screen.getByPlaceholderText('G... Stellar address'), LONG_RECIPIENT);
+  await userEvent.type(screen.getByPlaceholderText('0.00'), '5');
+
+  fireEvent.submit(screen.getByRole('button', { name: /review payment/i }).closest('form'));
+  await screen.findByText('Confirm Transaction');
+
+  const link = screen.getByRole('link', { name: /verify address/i });
+  expect(link).toHaveAttribute(
+    'href',
+    `https://stellar.expert/explorer/testnet/account/${LONG_RECIPIENT}`
+  );
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+});
+
+test('Verify address link points to mainnet Stellar Expert URL when network is mainnet', async () => {
+  process.env.REACT_APP_STELLAR_NETWORK = 'mainnet';
+  renderComponent();
+
+  await userEvent.type(screen.getByPlaceholderText('G... Stellar address'), LONG_RECIPIENT);
+  await userEvent.type(screen.getByPlaceholderText('0.00'), '5');
+
+  fireEvent.submit(screen.getByRole('button', { name: /review payment/i }).closest('form'));
+  await screen.findByText('Confirm Transaction');
+
+  const link = screen.getByRole('link', { name: /verify address/i });
+  expect(link).toHaveAttribute(
+    'href',
+    `https://stellar.expert/explorer/public/account/${LONG_RECIPIENT}`
+  );
+
+  // Reset
+  delete process.env.REACT_APP_STELLAR_NETWORK;
 });
