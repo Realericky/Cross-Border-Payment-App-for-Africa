@@ -103,7 +103,11 @@ beforeEach(() => {
         }),
     })
   );
-  api.get.mockResolvedValue({ data: { contacts: [] } });
+  api.get.mockImplementation((url) => {
+    if (url === '/wallet/list') return Promise.resolve({ data: { wallets: [] } });
+    if (url === '/payments/fee-stats') return Promise.resolve({ data: {} });
+    return Promise.resolve({ data: { contacts: [] } });
+  });
   api.post.mockResolvedValue({ data: {} });
 });
 
@@ -302,6 +306,35 @@ test('second click opens PIN verification modal', async () => {
   );
   // Payment API must not have been called yet (PIN not entered)
   expect(api.post).not.toHaveBeenCalledWith('/payments/send', expect.anything());
+});
+
+test('pre-fills form from payment request when only requestId is in URL', async () => {
+  const REQUEST_ID = 'test-uuid-1234';
+  const REQUEST_DATA = {
+    requester_wallet: 'GREQUEST0000000000000000000000000000000000000000000001',
+    amount: '42.5',
+    asset: 'USDC',
+    memo: 'invoice-99',
+  };
+
+  api.get.mockImplementation((url) => {
+    if (url === `/payment-requests/${REQUEST_ID}`) return Promise.resolve({ data: REQUEST_DATA });
+    return Promise.resolve({ data: { contacts: [] } });
+  });
+
+  render(
+    <I18nextProvider i18n={i18n}>
+      <MemoryRouter initialEntries={[`/send?request=${REQUEST_ID}`]}>
+        <SendMoney />
+      </MemoryRouter>
+    </I18nextProvider>
+  );
+
+  await waitFor(() =>
+    expect(screen.getByPlaceholderText('G... Stellar address')).toHaveValue(REQUEST_DATA.requester_wallet)
+  );
+  expect(screen.getByPlaceholderText('0.00')).toHaveValue(42.5);
+  expect(screen.getByPlaceholderText('Payment note...')).toHaveValue(REQUEST_DATA.memo);
 });
 
 test('submit button is disabled while loading', async () => {
