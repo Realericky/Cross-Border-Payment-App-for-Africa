@@ -218,9 +218,10 @@ export default function Dashboard() {
     }
   };
 
-  const xlmBalance = wallet?.balances?.find((b) => b.asset === 'XLM')?.balance || '0';
-  const xlmAvailable = wallet?.balances?.find((b) => b.asset === 'XLM')?.available_balance || null;
+  const xlmBalance = wallet?.balances?.find((b) => b.asset === 'XLM')?.balance ?? '0';
+  const xlmAvailable = wallet?.balances?.find((b) => b.asset === 'XLM')?.available_balance ?? null;
   const accountExists = wallet?.account_exists !== false; // treat undefined (cached) as true
+  const showFundWalletButton = IS_TESTNET && !!wallet && (xlmBalance === '0' || wallet.account_exists === false);
 
   // All non-zero balances for the active wallet
   const allBalances = wallet?.balances || [];
@@ -267,7 +268,7 @@ export default function Dashboard() {
             <FlaskConical size={15} />
             <span>Testnet mode — funds have no real value</span>
           </div>
-          {!accountExists && (
+          {showFundWalletButton && (
             <button
               onClick={fundWallet}
               disabled={funding}
