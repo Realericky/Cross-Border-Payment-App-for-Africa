@@ -13,6 +13,7 @@ import { setCacheEntry, getCacheEntry } from '../utils/offlineDB';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { getQueueCount } from '../utils/offlineDB';
 
 const IS_TESTNET = process.env.REACT_APP_STELLAR_NETWORK !== 'mainnet';
 const MAX_WALLETS = 5;
@@ -76,6 +77,7 @@ export default function Dashboard() {
   const [balanceIncreased, setBalanceIncreased] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [showZeroBalances, setShowZeroBalances] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
   const { currencies, convertFromXLM, usingApproximateRates } = useExchangeRates();
   const { isOnline } = useOnlineStatus();
 
@@ -179,7 +181,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboard();
-  }, [loadDashboard]);
+    if (!isOnline) {
+      getQueueCount().then(setQueueCount).catch(() => {});
+    }
+  }, [loadDashboard, isOnline]);
 
   const copyAddress = () => {
     navigator.clipboard.writeText(wallet?.public_key || '');
@@ -257,7 +262,7 @@ export default function Dashboard() {
       ? selectedAssetBalance
       : convertFromXLM(xlmBalance, selectedCurrency);
 
-  const { pullDistance, refreshing, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(loadDashboard);
+  const { pullDistance, refreshing: pullRefreshing, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(loadDashboard);
 
   if (loading)
     return (
@@ -289,15 +294,15 @@ export default function Dashboard() {
       onTouchEnd={onTouchEnd}
     >
       {/* Pull-to-refresh indicator */}
-      {(pullDistance > 0 || refreshing) && (
+      {(pullDistance > 0 || pullRefreshing) && (
         <div
           className="flex justify-center items-center transition-all duration-150"
-          style={{ height: refreshing ? 40 : pullDistance, overflow: 'hidden' }}
+          style={{ height: pullRefreshing ? 40 : pullDistance, overflow: 'hidden' }}
         >
           <RefreshCw
             size={20}
-            className={`text-primary-400 transition-transform ${refreshing ? 'animate-spin' : ''}`}
-            style={{ transform: refreshing ? undefined : `rotate(${(pullDistance / 80) * 360}deg)` }}
+            className={`text-primary-400 transition-transform ${pullRefreshing ? 'animate-spin' : ''}`}
+            style={{ transform: pullRefreshing ? undefined : `rotate(${(pullDistance / 80) * 360}deg)` }}
           />
         </div>
       )}
@@ -355,6 +360,17 @@ export default function Dashboard() {
           >
             Refresh
           </button>
+        </div>
+      )}
+
+      {/* Offline Queue Indicator */}
+      {!isOnline && queueCount > 0 && (
+        <div className="flex items-center justify-between bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-3 text-primary-400 text-sm">
+            <Clock size={16} />
+            <span>{queueCount} payment{queueCount !== 1 ? 's' : ''} queued offline</span>
+          </div>
+          <p className="text-[10px] text-primary-500/70 font-medium uppercase tracking-wider">Pending Sync</p>
         </div>
       )}
 

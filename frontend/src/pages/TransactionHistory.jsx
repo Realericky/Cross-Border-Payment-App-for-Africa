@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Send, Download, ExternalLink, Filter, Search, Flag, X, WifiOff } from 'lucide-react';
+import { ArrowLeft, Send, Download, ExternalLink, Filter, Search, Flag, X, WifiOff, Loader2 } from 'lucide-react';
 import api from '../utils/api';
 import { truncateAddress } from '../utils/currency';
 import { TransactionCardSkeleton } from '../components/Skeleton';
@@ -210,21 +210,20 @@ export default function TransactionHistory() {
     if (exporting) return;
     setExporting(true);
     try {
-      const params = {};
+      const params = { format: 'csv' };
       if (dateFrom) params.from = dateFrom;
       if (dateTo) params.to = dateTo;
       if (asset) params.asset = asset;
       if (filter !== 'all') params.direction = filter;
-      const res = await api.get('/payments/export', { params, responseType: 'blob' });
+      const res = await api.get('/payments/history', { params, responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'transactions.csv';
+      a.download = `transactions_${new Date().toISOString().split('T')[0]}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('CSV downloaded');
     } catch {
-      toast.error('Export failed. Please try again.');
+      alert('Export failed. Please try again.');
     } finally {
       setExporting(false);
     }
