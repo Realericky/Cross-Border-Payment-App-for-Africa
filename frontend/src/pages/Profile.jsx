@@ -12,6 +12,7 @@ const LANGUAGES = [
   { code: 'sw', label: 'Kiswahili' },
   { code: 'fr', label: 'Français' },
   { code: 'ha', label: 'Hausa' },
+  { code: 'yo', label: 'Yorùbá' },
 ];
 
 export default function Profile() {
@@ -416,6 +417,8 @@ export default function Profile() {
           {LANGUAGES.map(lang => (
             <button
               key={lang.code}
+              type="button"
+              aria-pressed={i18n.language === lang.code}
               onClick={() => changeLanguage(lang.code)}
               className={`py-2.5 px-4 rounded-xl text-sm font-medium transition-colors ${
                 i18n.language === lang.code
