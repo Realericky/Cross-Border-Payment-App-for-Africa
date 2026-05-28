@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useBeforeUnload } from 'react-router-dom';
 import { ArrowLeft, Send, ChevronDown, Users, Camera, Code, ArrowRightLeft, Wallet, AlertTriangle } from 'lucide-react';
 import api from '../utils/api';
 import { useExchangeRates } from '../hooks/useExchangeRates';
@@ -247,10 +247,19 @@ export default function SendMoney() {
     window.visualViewport?.addEventListener('resize', handleResize);
     return () => window.visualViewport?.removeEventListener('resize', handleResize);
   }, []);
+  // Ref to abort any in-flight path request when form values change
+  const pathAbortRef = useRef(null);
+
   // Debounced path finding
   const findPath = useCallback(async () => {
+    // Abort any previous in-flight request
+    pathAbortRef.current?.abort();
+    const controller = new AbortController();
+    pathAbortRef.current = controller;
+
     if (!isCrossAsset || !form.amount || !form.recipient_address) {
       setPathResult(null);
+      setPathLoading(false);
       return;
     }
     setPathLoading(true);
@@ -262,7 +271,7 @@ export default function SendMoney() {
           destination_asset: form.destination_asset,
           destination_amount: parseFloat(form.amount),
           recipient_address: form.recipient_address,
-        });
+        }, { signal: controller.signal });
         setPathResult(res.data);
       } else {
         // Strict send: user specifies source amount, we find destination amount
@@ -271,19 +280,30 @@ export default function SendMoney() {
           source_amount: parseFloat(form.amount),
           destination_asset: form.destination_asset,
           recipient_address: form.recipient_address,
-        });
+        }, { signal: controller.signal });
         setPathResult(res.data);
       }
-    } catch {
-      setPathResult(null);
+    } catch (err) {
+      // Ignore abort errors — they are intentional cancellations
+      if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
+        setPathResult(null);
+      }
     } finally {
-      setPathLoading(false);
+      // Only clear loading state if this request was not superseded
+      if (!controller.signal.aborted) {
+        setPathLoading(false);
+      }
     }
   }, [form.amount, form.asset, form.destination_asset, form.recipient_address, isCrossAsset, sendMode]);
 
   useEffect(() => {
+    // Clear stale result immediately so the UI never shows data for old inputs
+    setPathResult(null);
     const timer = setTimeout(findPath, 600);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      pathAbortRef.current?.abort();
+    };
   }, [findPath]);
 
   const checkMemoRequired = useCallback(async (address) => {
@@ -992,7 +1012,26 @@ export default function SendMoney() {
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 space-y-2">
             <p className="text-yellow-400 font-semibold text-sm">{t('send.confirm_title')}</p>
             <div className="text-sm text-gray-300 space-y-1">
-              <p>{t('send.confirm_to')} <span className="font-mono text-xs">{form.recipient_address.slice(0, 20)}...</span></p>
+              <p>
+                {t('send.confirm_to')}{' '}
+                <span
+                  className="font-mono text-xs cursor-help border-b border-dotted border-gray-500"
+                  title={form.recipient_address}
+                  aria-label={`Full address: ${form.recipient_address}`}
+                >
+                  {form.recipient_address.slice(0, 10)}…{form.recipient_address.slice(-10)}
+                </span>
+                {' '}
+                <a
+                  href={`https://stellar.expert/explorer/${process.env.REACT_APP_STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet'}/account/${form.recipient_address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary-400 hover:text-primary-300 text-xs underline"
+                  aria-label="Verify address on Stellar Expert Explorer"
+                >
+                  Verify address ↗
+                </a>
+              </p>
               <p>{t('send.confirm_amount')} <span className="text-white font-semibold">{form.amount} {form.asset}</span></p>
               {feeXLM && (
                 <>
