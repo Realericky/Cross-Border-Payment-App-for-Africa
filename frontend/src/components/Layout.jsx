@@ -1,5 +1,5 @@
 import React from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Send, Download, Clock, Upload, User, LogOut, Sun, Moon, Bell, BellOff, AlertTriangle, ArrowUpDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -22,6 +22,7 @@ const isTestnet = process.env.REACT_APP_STELLAR_NETWORK !== 'mainnet';
 export default function Layout() {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { supported, subscribed, loading, subscribe, unsubscribe } = usePushNotifications();
   const { isDegraded, status } = useStellarStatus();
@@ -80,7 +81,9 @@ export default function Layout() {
 
       {/* Page content */}
       <main className="flex-1 overflow-y-auto pb-20">
-        <Outlet />
+        <div key={location.pathname} className="page-transition">
+          <Outlet />
+        </div>
       </main>
 
       {/* Bottom nav (mobile-first) */}
