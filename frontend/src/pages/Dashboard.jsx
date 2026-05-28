@@ -724,7 +724,19 @@ export default function Dashboard() {
                       ? `${t('dashboard.to')} ${truncateAddress(tx.recipient_wallet)}`
                       : `${t('dashboard.from')} ${truncateAddress(tx.sender_wallet)}`}
                   </p>
-                  <p className="text-xs text-gray-500">{new Date(tx.created_at).toLocaleDateString()}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-xs text-gray-500">{new Date(tx.created_at).toLocaleDateString()}</p>
+                    {tx.status && tx.status !== 'completed' && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                        tx.status === 'pending'   ? 'bg-yellow-500/10 text-yellow-400' :
+                        tx.status === 'failed'    ? 'bg-red-500/10 text-red-400' :
+                        tx.status === 'cancelled' ? 'bg-gray-500/10 text-gray-400' :
+                                                    'bg-blue-500/10 text-blue-400'
+                      }`}>
+                        {tx.status}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <span
                   className={`text-sm font-semibold shrink-0 ${tx.direction === 'sent' ? 'text-red-400' : 'text-primary-400'
