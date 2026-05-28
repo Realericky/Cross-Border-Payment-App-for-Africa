@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown, PiggyBank, Eye, EyeOff } from 'lucide-react';
+import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown, PiggyBank, Eye, EyeOff, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BalanceCardSkeleton, TransactionRowSkeleton } from '../components/Skeleton';
 import api from '../utils/api';
@@ -52,6 +52,8 @@ export default function Dashboard() {
   const wallet = wallets.find((w) => w.id === activeWalletId) || wallets[0] || null;
 
   const [transactions, setTransactions] = useState([]);
+  const [scheduledPayments, setScheduledPayments] = useState([]);
+  const [scheduledLoading, setScheduledLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -75,9 +77,11 @@ export default function Dashboard() {
         Promise.all([
           api.get('/wallet/list'),
           api.get('/payments/history'),
-        ]).then(([walletsRes, txRes]) => {
+          api.get('/scheduled-payments').catch(() => ({ data: { payments: [] } })),
+        ]).then(([walletsRes, txRes, scheduledRes]) => {
           setWallets(walletsRes.data.wallets);
           setTransactions(txRes.data.transactions.slice(0, 5));
+          setScheduledPayments((scheduledRes.data.payments || []).filter(p => p.active).slice(0, 3));
         }).catch(() => { });
       }
     },
@@ -118,9 +122,10 @@ export default function Dashboard() {
     }
 
     try {
-      const [walletsRes, txRes] = await Promise.all([
+      const [walletsRes, txRes, scheduledRes] = await Promise.all([
         api.get('/wallet/list'),
         api.get('/payments/history'),
+        api.get('/scheduled-payments').catch(() => ({ data: { payments: [] } })),
       ]);
       const walletsData = walletsRes.data.wallets;
       const txData = txRes.data.transactions;
@@ -128,6 +133,8 @@ export default function Dashboard() {
       setWallets(walletsData);
       setActiveWalletId((id) => id || walletsData[0]?.id || null);
       setTransactions(txData.slice(0, 5));
+      setScheduledPayments((scheduledRes.data.payments || []).filter(p => p.active).slice(0, 3));
+      setScheduledLoading(false);
       setFromCache(false);
 
       await Promise.all([
@@ -706,6 +713,47 @@ export default function Dashboard() {
           {adminContractState && (
             <div className="bg-gray-800 p-3 rounded-lg overflow-x-auto text-xs font-mono text-gray-300">
               {JSON.stringify(adminContractState, null, 2)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Upcoming Scheduled Payments */}
+      {(scheduledLoading || scheduledPayments.length > 0) && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-900 dark:text-white">Upcoming Payments</h3>
+            <button onClick={() => navigate('/scheduled')} className="text-primary-500 text-sm hover:underline">
+              See all
+            </button>
+          </div>
+          {scheduledLoading ? (
+            <div className="space-y-2">
+              {[0, 1].map(i => <div key={i} className="skeleton h-14 rounded-xl" />)}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {scheduledPayments.map(p => (
+                <div
+                  key={p.id}
+                  className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-3 flex items-center gap-3 shadow-sm"
+                >
+                  <div className="w-9 h-9 rounded-full bg-primary-500/10 text-primary-400 flex items-center justify-center shrink-0">
+                    <Clock size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {p.recipient_wallet.slice(0, 8)}…{p.recipient_wallet.slice(-4)}
+                    </p>
+                    <p className="text-xs text-gray-500 capitalize">
+                      {p.frequency} · Next: {new Date(p.next_run_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold text-primary-400 shrink-0">
+                    {p.amount} {p.asset}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
