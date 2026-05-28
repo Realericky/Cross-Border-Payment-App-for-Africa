@@ -564,3 +564,38 @@ fn test_deposit_into_expired_escrow_is_rejected() {
 
     client.deposit(&sender, &escrow_id, &amount);
 }
+
+// --- #345: EscrowDeposited event test ---
+
+#[test]
+fn test_deposit_emits_escrow_deposited_event() {
+    use crate::EscrowDeposited;
+
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let amount = 500_0000000i128;
+    let deposit_amount = 200_0000000i128;
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, amount + deposit_amount);
+
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &amount, &250);
+    client.deposit(&sender, &escrow_id, &deposit_amount);
+
+    let event_name: Val = Symbol::new(&env, "EscrowDeposited").into_val(&env);
+    let events = env.events().all();
+    let deposit_event = events.iter().find(|(_, topics, _)| {
+        topics.iter().any(|topic| topic == &event_name)
+    });
+
+    assert!(deposit_event.is_some(), "EscrowDeposited event not emitted");
+
+    let (_, _, data) = deposit_event.unwrap();
+    let payload: EscrowDeposited = soroban_sdk::from_val(&env, data);
+
+    assert_eq!(payload.escrow_id, escrow_id);
+    assert_eq!(payload.depositor, sender);
+    assert_eq!(payload.amount, deposit_amount);
+    assert_eq!(payload.new_total, amount + deposit_amount);
+}
