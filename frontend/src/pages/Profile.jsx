@@ -22,6 +22,10 @@ import {
   Shield,
   Key,
   AlertCircle,
+  Monitor,
+  Link2,
+  Calendar,
+  Webhook,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { truncateAddress } from '../utils/currency';
@@ -38,7 +42,7 @@ const LANGUAGES = [
 ];
 
 export default function Profile() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -203,8 +207,7 @@ export default function Profile() {
       setTwoFAStep(null);
       setTwoFAData(null);
       setTwoFACode('');
-      // Update local user state
-      user.totp_enabled = true;
+      updateUser({ totp_enabled: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Invalid code');
     } finally {
@@ -220,7 +223,7 @@ export default function Profile() {
       toast.success('2FA disabled');
       setTwoFAStep(null);
       setTwoFAPassword('');
-      user.totp_enabled = false;
+      updateUser({ totp_enabled: false });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to disable 2FA');
     } finally {
@@ -779,6 +782,51 @@ export default function Profile() {
         <span className="text-gray-500 text-lg">›</span>
       </Link>
 
+      {/* Request Money (#461) */}
+      <Link
+        to="/request"
+        className="bg-gray-900 rounded-2xl p-5 flex items-center justify-between hover:bg-gray-800 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Link2 size={20} className="text-primary-500" />
+          <div>
+            <p className="font-semibold text-white text-sm">Request Money</p>
+            <p className="text-xs text-gray-400">Create a shareable payment link</p>
+          </div>
+        </div>
+        <span className="text-gray-500 text-lg">›</span>
+      </Link>
+
+      {/* Scheduled Payments (#462) */}
+      <Link
+        to="/scheduled"
+        className="bg-gray-900 rounded-2xl p-5 flex items-center justify-between hover:bg-gray-800 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Calendar size={20} className="text-primary-500" />
+          <div>
+            <p className="font-semibold text-white text-sm">Scheduled Payments</p>
+            <p className="text-xs text-gray-400">View, create, and cancel recurring payments</p>
+          </div>
+        </div>
+        <span className="text-gray-500 text-lg">›</span>
+      </Link>
+
+      {/* Webhooks (#464) */}
+      <Link
+        to="/webhooks"
+        className="bg-gray-900 rounded-2xl p-5 flex items-center justify-between hover:bg-gray-800 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Webhook size={20} className="text-primary-500" />
+          <div>
+            <p className="font-semibold text-white text-sm">Webhooks</p>
+            <p className="text-xs text-gray-400">Manage transaction event endpoints</p>
+          </div>
+        </div>
+        <span className="text-gray-500 text-lg">›</span>
+      </Link>
+
       {/* Contacts */}
       <div className="bg-gray-900 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
@@ -1285,6 +1333,18 @@ export default function Profile() {
             {signersLoading ? 'Loading…' : signers === null ? 'Load' : 'Refresh'}
           </button>
         </div>
+
+        {/* Active sessions link (#466) */}
+        <Link
+          to="/sessions"
+          className="flex items-center justify-between bg-gray-800 hover:bg-gray-700 rounded-xl px-4 py-3 mb-4 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Monitor size={15} className="text-gray-400" />
+            <span className="text-sm text-white">Active Sessions</span>
+          </div>
+          <span className="text-gray-500 text-lg">›</span>
+        </Link>
 
         {signersError && <p className="text-red-400 text-xs mb-3">{signersError}</p>}
 

@@ -18,6 +18,7 @@ import {
   Clock,
   Mail,
 } from 'lucide-react';
+import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown, PiggyBank, Eye, EyeOff, Clock, Bell, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BalanceCardSkeleton, TransactionRowSkeleton } from '../components/Skeleton';
 import api from '../utils/api';
@@ -30,6 +31,8 @@ import { setCacheEntry, getCacheEntry } from '../utils/offlineDB';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import PINSetupModal from '../components/PINSetupModal';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import { getQueueCount } from '../utils/offlineDB';
 
 const IS_TESTNET = process.env.REACT_APP_STELLAR_NETWORK !== 'mainnet';
@@ -47,9 +50,28 @@ function BalanceDisplay({ balance }) {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
+
+  // Issue #454: PIN setup prompt on first login
+  const [showPINSetup, setShowPINSetup] = useState(false);
+  useEffect(() => {
+    if (user && user.pin_setup_completed === false) {
+      setShowPINSetup(true);
+    }
+  }, [user]);
+
+  // Issue #455: Push notification opt-in banner
+  const { supported: pushSupported, subscribed: pushSubscribed, loading: pushLoading, subscribe: pushSubscribe } = usePushNotifications();
+  const [pushDismissed, setPushDismissed] = useState(
+    () => localStorage.getItem('afripay_push_dismissed') === 'true'
+  );
+  const showPushBanner = pushSupported && !pushSubscribed && !pushDismissed;
+  const dismissPushBanner = () => {
+    localStorage.setItem('afripay_push_dismissed', 'true');
+    setPushDismissed(true);
+  };
 
   // Admin Contract State Viewer
   const [adminContractId, setAdminContractId] = useState('');
@@ -397,6 +419,30 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Issue #455: Push notification opt-in banner */}
+      {showPushBanner && (
+        <div className="flex items-center gap-3 bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-3">
+          <Bell size={18} className="text-primary-400 shrink-0" />
+          <div className="flex-1">
+            <p className="text-primary-300 text-sm font-medium">Enable push notifications</p>
+            <p className="text-primary-400/70 text-xs mt-0.5">
+              Get alerted instantly when you receive a payment.
+            </p>
+          </div>
+          <button
+            onClick={pushSubscribe}
+            disabled={pushLoading}
+            className="text-xs bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white font-semibold px-3 py-1.5 rounded-lg transition-colors shrink-0"
+          >
+            {pushLoading ? 'Enabling…' : 'Enable'}
+          </button>
+          <button
+            onClick={dismissPushBanner}
+            className="text-gray-500 hover:text-white shrink-0"
+            aria-label="Dismiss notification prompt"
+          >
+            <X size={16} />
+          </button>
       {/* Offline Queue Indicator */}
       {!isOnline && queueCount > 0 && (
         <div className="flex items-center justify-between bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-3">
@@ -668,10 +714,42 @@ export default function Dashboard() {
               onClick={copyAddress}
               className="text-primary-200 hover:text-white shrink-0"
               aria-label={copied ? 'Address copied' : 'Copy wallet address'}
+        {/* Fiat currency selector */}
+        <div className="flex gap-2 flex-wrap mb-3">
+          {currencies.map((c) => (
+            <button
+              key={c.code}
+              onClick={() => setSelectedCurrency(c.code)}
+              className={`text-xs px-2.5 py-1 rounded-full transition-colors ${selectedCurrency === c.code
+                  ? 'bg-white text-primary-700 font-semibold'
+                  : 'bg-primary-500/40 text-primary-100 hover:bg-primary-500/60'
+                }`}
+              title={`View balance in ${c.name}`}
             >
               {copied ? <CheckCheck size={14} /> : <Copy size={14} />}
             </button>
           </div>
+          ))}
+        </div>
+        {usingApproximateRates && (
+          <p className="text-primary-200/90 text-xs mb-3 leading-snug">
+            {t('common.rates_disclaimer')}
+          </p>
+        )}
+
+        {/* Wallet address */}
+        <div className="flex items-center gap-2 bg-primary-800/40 rounded-lg px-3 py-2">
+          <span className="text-primary-200 text-xs font-mono flex-1 truncate">
+            {truncateAddress(wallet?.public_key, 10)}
+          </span>
+          <button
+            onClick={copyAddress}
+            className="text-primary-200 hover:text-white shrink-0 transition-colors"
+            aria-label={copied ? 'Address copied to clipboard' : 'Copy wallet address'}
+            title={copied ? 'Copied!' : 'Copy address'}
+          >
+            {copied ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
+          </button>
         </div>
       )}
 
@@ -852,6 +930,13 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {/* Issue #454: PIN setup modal on first login */}
+      <PINSetupModal
+        isOpen={showPINSetup}
+        onClose={() => setShowPINSetup(false)}
+        onSuccess={() => updateUser({ pin_setup_completed: true })}
+      />
 
       {/* Recent transactions */}
       <div>
