@@ -74,6 +74,15 @@ pub struct FeeUpdated {
 
 #[derive(Clone)]
 #[contracttype]
+pub struct EscrowDeposited {
+    pub escrow_id: u64,
+    pub depositor: Address,
+    pub amount: i128,
+    pub new_total: i128,
+}
+
+#[derive(Clone)]
+#[contracttype]
 pub struct Escrow {
     pub id: u64,
     pub sender: Address,
@@ -296,6 +305,16 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::Escrow(escrow_id), &escrow);
+
+        env.events().publish(
+            (Symbol::new(&env, "EscrowDeposited"),),
+            EscrowDeposited {
+                escrow_id,
+                depositor: sender,
+                amount,
+                new_total: escrow.amount,
+            },
+        );
     }
 
     pub fn release_escrow(env: Env, agent: Address, escrow_id: u64) {

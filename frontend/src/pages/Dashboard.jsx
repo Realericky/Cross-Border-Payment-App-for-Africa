@@ -259,27 +259,8 @@ export default function Dashboard() {
 
   const { pullDistance, refreshing, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(loadDashboard);
 
-  if (loading)
-    return (
-      <div className="px-4 py-6 max-w-lg mx-auto space-y-6" aria-busy="true" aria-label="Loading dashboard">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <div className="skeleton h-3 w-20 rounded-lg" />
-            <div className="skeleton h-5 w-32 rounded-lg" />
-          </div>
-        </div>
-        <BalanceCardSkeleton />
-        <div className="grid grid-cols-2 gap-3">
-          <div className="skeleton h-16 rounded-xl" />
-          <div className="skeleton h-16 rounded-xl" />
-        </div>
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <TransactionRowSkeleton key={i} />
-          ))}
-        </div>
-      </div>
-    );
+  // Removed global loading block to allow granular skeleton loading
+
 
   return (
     <div
@@ -509,6 +490,9 @@ export default function Dashboard() {
       </div>
 
       {/* Balance Card */}
+      {loading ? (
+        <BalanceCardSkeleton />
+      ) : (
       <div
         className={`bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl p-5 shadow-lg shadow-primary-500/20 transition-all duration-500 ${balanceIncreased ? 'ring-4 ring-green-400 ring-opacity-50' : ''
           }`}
@@ -606,6 +590,7 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+      )}
 
       {/* All wallets balance summary (when user has more than one) */}
       {wallets.length > 1 && (
