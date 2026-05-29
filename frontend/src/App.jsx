@@ -10,6 +10,8 @@ import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
+import SendMoney from "./pages/SendMoney";
+import ReceiveMoney from "./pages/ReceiveMoney";
 import SaveMoney from "./pages/SaveMoney";
 import RequestMoney from "./pages/RequestMoney";
 import ScheduledPayments from "./pages/ScheduledPayments";
