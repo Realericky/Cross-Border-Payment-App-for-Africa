@@ -23,6 +23,9 @@ import {
   Key,
   AlertCircle,
   Monitor,
+  Link2,
+  Calendar,
+  Webhook,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { truncateAddress } from '../utils/currency';
@@ -585,6 +588,51 @@ export default function Profile() {
           <div>
             <p className="font-semibold text-white text-sm">Refer &amp; Earn</p>
             <p className="text-xs text-gray-400">Invite friends, earn fee credits</p>
+          </div>
+        </div>
+        <span className="text-gray-500 text-lg">›</span>
+      </Link>
+
+      {/* Request Money (#461) */}
+      <Link
+        to="/request"
+        className="bg-gray-900 rounded-2xl p-5 flex items-center justify-between hover:bg-gray-800 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Link2 size={20} className="text-primary-500" />
+          <div>
+            <p className="font-semibold text-white text-sm">Request Money</p>
+            <p className="text-xs text-gray-400">Create a shareable payment link</p>
+          </div>
+        </div>
+        <span className="text-gray-500 text-lg">›</span>
+      </Link>
+
+      {/* Scheduled Payments (#462) */}
+      <Link
+        to="/scheduled"
+        className="bg-gray-900 rounded-2xl p-5 flex items-center justify-between hover:bg-gray-800 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Calendar size={20} className="text-primary-500" />
+          <div>
+            <p className="font-semibold text-white text-sm">Scheduled Payments</p>
+            <p className="text-xs text-gray-400">View, create, and cancel recurring payments</p>
+          </div>
+        </div>
+        <span className="text-gray-500 text-lg">›</span>
+      </Link>
+
+      {/* Webhooks (#464) */}
+      <Link
+        to="/webhooks"
+        className="bg-gray-900 rounded-2xl p-5 flex items-center justify-between hover:bg-gray-800 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Webhook size={20} className="text-primary-500" />
+          <div>
+            <p className="font-semibold text-white text-sm">Webhooks</p>
+            <p className="text-xs text-gray-400">Manage transaction event endpoints</p>
           </div>
         </div>
         <span className="text-gray-500 text-lg">›</span>
