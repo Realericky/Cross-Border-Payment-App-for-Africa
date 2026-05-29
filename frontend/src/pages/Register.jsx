@@ -2,22 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, ArrowLeft, ChevronDown, ChevronUp, Check, X } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ChevronDown, ChevronUp, Check, X, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-
-function getPasswordStrength(password) {
-  const checks = {
-    length: password.length >= 8,
-    uppercase: /[A-Z]/.test(password),
-    number: /[0-9]/.test(password),
-    special: /[^A-Za-z0-9]/.test(password),
-  };
-  const score = Object.values(checks).filter(Boolean).length;
-  const levels = ['', 'weak', 'fair', 'strong', 'very strong'];
-  const colors = ['', 'bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500'];
-  const textColors = ['', 'text-red-500', 'text-orange-500', 'text-yellow-500', 'text-green-500'];
-  return { checks, score, label: levels[score], barColor: colors[score], textColor: textColors[score] };
-}
+import { getPasswordStrength, validateEmail, getEmailError, getPasswordError } from '../utils/passwordValidator';
 
 export default function Register() {
   const { register } = useAuth();
@@ -32,11 +19,32 @@ export default function Register() {
   const [secretKey, setSecretKey] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [secretKeyError, setSecretKeyError] = useState('');
+  const [touched, setTouched] = useState({ full_name: false, email: false, password: false });
 
   const strength = useMemo(() => getPasswordStrength(form.password), [form.password]);
+  const emailError = touched.email ? getEmailError(form.email) : '';
+  const passwordError = touched.password ? getPasswordError(form.password) : '';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Mark all fields as touched for validation
+    setTouched({ full_name: true, email: true, password: true });
+
+    // Validate required fields
+    if (!form.full_name.trim()) {
+      toast.error('Full name is required');
+      return;
+    }
+    if (emailError) {
+      toast.error(emailError);
+      return;
+    }
+    if (passwordError) {
+      toast.error(passwordError);
+      return;
+    }
+
     if (showImport && secretKey) {
       // Validate Stellar secret key: starts with 'S', 56 chars, base32
       const isValid = /^S[A-Z2-7]{55}$/.test(secretKey);
@@ -81,8 +89,14 @@ export default function Register() {
               placeholder="[Full Name]"
               value={form.full_name}
               onChange={e => setForm({ ...form, full_name: e.target.value })}
+              onBlur={() => setTouched({ ...touched, full_name: true })}
               className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors shadow-sm"
             />
+            {touched.full_name && !form.full_name.trim() && (
+              <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                <AlertCircle size={12} /> Full name is required
+              </p>
+            )}
           </div>
           <div>
             <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">{t('register.email')}</label>
@@ -92,8 +106,16 @@ export default function Register() {
               placeholder="[email]"
               value={form.email}
               onChange={e => setForm({ ...form, email: e.target.value })}
-              className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors shadow-sm"
+              onBlur={() => setTouched({ ...touched, email: true })}
+              className={`w-full bg-white dark:bg-gray-800 border rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors shadow-sm ${
+                emailError ? 'border-red-500 dark:border-red-500' : 'border-gray-200 dark:border-gray-700'
+              }`}
             />
+            {emailError && (
+              <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                <AlertCircle size={12} /> {emailError}
+              </p>
+            )}
           </div>
           <div>
             <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">{t('register.phone')}</label>
@@ -115,17 +137,25 @@ export default function Register() {
                 placeholder={t('register.password_placeholder')}
                 value={form.password}
                 onChange={e => setForm({ ...form, password: e.target.value })}
-                className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors pr-12 shadow-sm"
+                onBlur={() => setTouched({ ...touched, password: true })}
+                className={`w-full bg-white dark:bg-gray-800 border rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors pr-12 shadow-sm ${
+                  passwordError ? 'border-red-500 dark:border-red-500' : 'border-gray-200 dark:border-gray-700'
+                }`}
               />
               <button type="button" onClick={() => setShowPass(!showPass)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors">
                 {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
+            {passwordError && (
+              <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                <AlertCircle size={12} /> {passwordError}
+              </p>
+            )}
             {form.password && (
               <div className="mt-2 space-y-2">
                 <div className="flex gap-1">
-                  {[1, 2, 3, 4].map(i => (
+                  {[1, 2, 3, 4, 5].map(i => (
                     <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= strength.score ? strength.barColor : 'bg-gray-200 dark:bg-gray-700'}`} />
                   ))}
                 </div>
@@ -134,6 +164,7 @@ export default function Register() {
                   {[
                     { key: 'length', label: 'At least 8 characters' },
                     { key: 'uppercase', label: 'One uppercase letter' },
+                    { key: 'lowercase', label: 'One lowercase letter' },
                     { key: 'number', label: 'One number' },
                     { key: 'special', label: 'One special character' },
                   ].map(({ key, label }) => (
@@ -148,7 +179,7 @@ export default function Register() {
 
           <button
             type="submit"
-            disabled={loading || strength.score < 2}
+            disabled={loading || !form.full_name.trim() || emailError || passwordError}
             className="w-full bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl transition-colors mt-2"
           >
             {loading ? t('register.submitting') : t('register.submit')}
