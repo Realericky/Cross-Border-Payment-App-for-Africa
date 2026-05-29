@@ -573,7 +573,7 @@ export default function Dashboard() {
 
         {/* Fiat currency selector */}
         <div className="flex gap-2 flex-wrap mb-3">
-          {currencies.filter((c) => c.code !== 'XLM').map((c) => (
+          {currencies.map((c) => (
             <button
               key={c.code}
               onClick={() => setSelectedCurrency(c.code)}
@@ -581,6 +581,7 @@ export default function Dashboard() {
                   ? 'bg-white text-primary-700 font-semibold'
                   : 'bg-primary-500/40 text-primary-100 hover:bg-primary-500/60'
                 }`}
+              title={`View balance in ${c.name}`}
             >
               {c.flag} {c.code}
             </button>
@@ -599,10 +600,11 @@ export default function Dashboard() {
           </span>
           <button
             onClick={copyAddress}
-            className="text-primary-200 hover:text-white shrink-0"
-            aria-label={copied ? 'Address copied' : 'Copy wallet address'}
+            className="text-primary-200 hover:text-white shrink-0 transition-colors"
+            aria-label={copied ? 'Address copied to clipboard' : 'Copy wallet address'}
+            title={copied ? 'Copied!' : 'Copy address'}
           >
-            {copied ? <CheckCheck size={14} /> : <Copy size={14} />}
+            {copied ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
           </button>
         </div>
       </div>
