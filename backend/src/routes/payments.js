@@ -1,10 +1,3 @@
-const router = require('express').Router();
-const { body, query, validationResult } = require('express-validator');
-const StellarSdk = require('@stellar/stellar-sdk');
-const authMiddleware = require('../middleware/auth');
-const idempotency = require('../middleware/idempotency');
-const paymentSendValidators = require('../validators/paymentSendValidators');
-const paymentBatchValidators = require('../validators/paymentBatchValidators');
 ﻿const router = require("express").Router();
 const { body, query, validationResult } = require("express-validator");
 const StellarSdk = require("@stellar/stellar-sdk");
@@ -24,11 +17,6 @@ const {
   sendPath,
   findReceivePathHandler,
   sendStrictReceivePath,
-} = require('../controllers/paymentController');
-const { buildTransaction, submitSigned } = require('../controllers/ledgerController');
-const { resolveFederationAddress } = require('../services/stellar');
-const { isMemoRequired } = require('../services/memoRequired');
-const { ALLOWED_HISTORY_ASSETS } = require('../utils/historyQuery');
 } = require("../controllers/paymentController");
 const { buildTransaction, submitSigned } = require("../controllers/ledgerController");
 const { resolveFederationAddress } = require("../services/stellar");
@@ -42,9 +30,6 @@ const STELLAR_MIN = 0.0000001;
 // Configurable max per transaction (env var, default 100 000)
 const MAX_TX = parseFloat(process.env.MAX_TRANSACTION_AMOUNT || "100000");
 
-const VALID_ASSETS = ['XLM', 'USDC', 'NGN', 'GHS', 'KES'];
-
-function amountLimits(field = 'amount') {
 function amountLimits(field = "amount") {
   return body(field)
     .isFloat({ gt: 0 }).withMessage("Amount must be greater than 0")

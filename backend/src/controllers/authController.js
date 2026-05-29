@@ -6,8 +6,6 @@ const { createWallet, encryptPrivateKey, addTrustline } = require('../services/s
 const audit = require('../services/audit');
 const logger = require('../utils/logger');
 const { hashPIN, comparePIN, validatePIN } = require('../services/pin');
-const { sendVerificationEmail } = require('../services/email');
-const logger = require('../utils/logger');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/email');
 const { generateSecret, verifyToken, generateBackupCodes, useBackupCode } = require('../services/twofa');
 const {
@@ -23,7 +21,6 @@ const TOKEN_TTL_MS = 96 * 60 * 60 * 1000; // 96 hours
 const { sendOTP } = require('../services/sms');
 const { recordSession } = require('./sessionController');
 
-const TOKEN_TTL_MS = 96 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const PHONE_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -262,36 +259,6 @@ async function login(req, res, next) {
     // Short-lived access token
     const token = signAccessToken({ userId: user.id, email: user.email, role: user.role });
 
-    // Refresh token — store only the hash, seed a new family
-    const { raw, hash } = generateRefreshToken();
-    const familyId = uuidv4();
-    await db.query(
-      `INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, revoked, expires_at)
-       VALUES ($1, $2, $3, $4, FALSE, $5)`,
-      [uuidv4(), user.id, hash, familyId, refreshTokenExpiresAt()]
-    );
-
-    res.cookie(COOKIE_NAME, raw, COOKIE_OPTIONS);
-    // Check if 2FA is enabled
-    if (user.totp_enabled) {
-      if (!totp_code) {
-        return res.status(403).json({ error: 'TOTP code required', requires_2fa: true });
-      }
-
-      const isValid = verifyToken(user.totp_secret, totp_code);
-      if (!isValid) {
-        return res.status(401).json({ error: 'Invalid TOTP code' });
-      }
-    }
-
-    // Successful login - reset attempt counters
-    await db.query(
-      `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_failed_attempt_at = NULL WHERE id = $1`,
-      [user.id]
-    );
-
-    const token = signAccessToken({ userId: user.id, email: user.email, role: user.role });
-
     // Issue refresh token — store only the hash in DB, seed a new family
     const { raw, hash } = generateRefreshToken();
     const expiresAt = refreshTokenExpiresAt();
@@ -319,70 +286,6 @@ async function login(req, res, next) {
         phone_verified: user.phone_verified,
       },
     });
-  } catch (err) {
-    next(err);
-  }
-}
-
-async function refresh(req, res, next) {
-  try {
-    const raw = req.cookies?.[COOKIE_NAME];
-    if (!raw) return res.status(401).json({ error: 'No refresh token' });
-
-    const hash = crypto.createHash('sha256').update(raw).digest('hex');
-
-    // Look up the token (active or revoked — we need both cases)
-    const result = await db.query(
-      `SELECT rt.id, rt.user_id, rt.expires_at, rt.family_id, rt.revoked,
-              u.email, u.role
-       FROM refresh_tokens rt
-       JOIN users u ON u.id = rt.user_id
-       WHERE rt.token_hash = $1`,
-      [hash]
-    );
-
-    const record = result.rows[0];
-
-    if (!record) {
-      // Hash not in DB at all — could be a completely bogus token, or a token
-      // from a family that was already fully wiped by a prior reuse detection.
-      return res.status(401).json({ error: 'Invalid refresh token' });
-    }
-
-    if (record.revoked) {
-      // Token was already rotated — this is a reuse attack.
-      // Invalidate the entire family and force re-login.
-      await db.query('DELETE FROM refresh_tokens WHERE family_id = $1', [record.family_id]);
-      logger.warn('refresh_token_reuse detected — family invalidated', {
-        event:     'refresh_token_reuse',
-        family_id: record.family_id,
-        user_id:   record.user_id,
-      });
-      res.clearCookie(COOKIE_NAME, { ...COOKIE_OPTIONS, maxAge: undefined });
-      return res.status(401).json({ error: 'Refresh token reuse detected. Please log in again.' });
-    }
-
-    if (new Date(record.expires_at) < new Date()) {
-      await db.query('DELETE FROM refresh_tokens WHERE id = $1', [record.id]);
-      res.clearCookie(COOKIE_NAME, { ...COOKIE_OPTIONS, maxAge: undefined });
-      return res.status(401).json({ error: 'Refresh token expired' });
-    }
-
-    // Valid — rotate: mark old token revoked (kept for reuse detection), issue new one
-    const { raw: newRaw, hash: newHash } = generateRefreshToken();
-
-    await db.query('UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1', [record.id]);
-    await db.query(
-      `INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, revoked, expires_at)
-       VALUES ($1, $2, $3, $4, FALSE, $5)`,
-      [uuidv4(), record.user_id, newHash, record.family_id, refreshTokenExpiresAt()]
-    );
-
-    const token = signAccessToken({ userId: record.user_id, email: record.email, role: record.role });
-
-    res.cookie(COOKIE_NAME, newRaw, COOKIE_OPTIONS);
-    setCsrfCookie(res);
-    res.json({ token });
   } catch (err) {
     next(err);
   }
@@ -605,12 +508,6 @@ async function verifyPIN(req, res, next) {
 
     const { pin_hash } = result.rows[0];
 
-    if (!result.rows[0]) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const { pin_hash } = result.rows[0];
-
     if (!pin_hash) {
       return res.status(400).json({ error: 'PIN not configured. Please set up a PIN first.' });
     }
@@ -624,7 +521,6 @@ async function verifyPIN(req, res, next) {
   }
 }
 
-module.exports = { register, login, refresh, logout, verifyEmail, getMe, setPIN, verifyPIN };
 async function refresh(req, res, next) {
   try {
     const raw = req.cookies?.[COOKIE_NAME];
@@ -724,19 +620,6 @@ async function refresh(req, res, next) {
   }
 }
 
-async function logout(req, res, next) {
-  try {
-    const raw = req.cookies?.[COOKIE_NAME];
-    if (raw) {
-      const hash = crypto.createHash('sha256').update(raw).digest('hex');
-      await db.query('DELETE FROM refresh_tokens WHERE token_hash = $1', [hash]);
-    }
-    res.clearCookie(COOKIE_NAME, { ...COOKIE_OPTIONS, maxAge: undefined });
-    res.json({ message: 'Logged out successfully' });
-  } catch (err) {
-    next(err);
-  }
-}
 
 async function forgotPassword(req, res, next) {
   try {
