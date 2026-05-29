@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown, PiggyBank, Eye, EyeOff, Clock } from 'lucide-react';
+import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown, PiggyBank, Eye, EyeOff, Clock, Bell, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BalanceCardSkeleton, TransactionRowSkeleton } from '../components/Skeleton';
 import api from '../utils/api';
@@ -13,6 +13,8 @@ import { setCacheEntry, getCacheEntry } from '../utils/offlineDB';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import PINSetupModal from '../components/PINSetupModal';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import { getQueueCount } from '../utils/offlineDB';
 
 const IS_TESTNET = process.env.REACT_APP_STELLAR_NETWORK !== 'mainnet';
@@ -30,9 +32,28 @@ function BalanceDisplay({ balance }) {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
+
+  // Issue #454: PIN setup prompt on first login
+  const [showPINSetup, setShowPINSetup] = useState(false);
+  useEffect(() => {
+    if (user && user.pin_setup_completed === false) {
+      setShowPINSetup(true);
+    }
+  }, [user]);
+
+  // Issue #455: Push notification opt-in banner
+  const { supported: pushSupported, subscribed: pushSubscribed, loading: pushLoading, subscribe: pushSubscribe } = usePushNotifications();
+  const [pushDismissed, setPushDismissed] = useState(
+    () => localStorage.getItem('afripay_push_dismissed') === 'true'
+  );
+  const showPushBanner = pushSupported && !pushSubscribed && !pushDismissed;
+  const dismissPushBanner = () => {
+    localStorage.setItem('afripay_push_dismissed', 'true');
+    setPushDismissed(true);
+  };
 
   // Admin Contract State Viewer
   const [adminContractId, setAdminContractId] = useState('');
@@ -344,6 +365,30 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Issue #455: Push notification opt-in banner */}
+      {showPushBanner && (
+        <div className="flex items-center gap-3 bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-3">
+          <Bell size={18} className="text-primary-400 shrink-0" />
+          <div className="flex-1">
+            <p className="text-primary-300 text-sm font-medium">Enable push notifications</p>
+            <p className="text-primary-400/70 text-xs mt-0.5">
+              Get alerted instantly when you receive a payment.
+            </p>
+          </div>
+          <button
+            onClick={pushSubscribe}
+            disabled={pushLoading}
+            className="text-xs bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white font-semibold px-3 py-1.5 rounded-lg transition-colors shrink-0"
+          >
+            {pushLoading ? 'Enabling…' : 'Enable'}
+          </button>
+          <button
+            onClick={dismissPushBanner}
+            className="text-gray-500 hover:text-white shrink-0"
+            aria-label="Dismiss notification prompt"
+          >
+            <X size={16} />
+          </button>
       {/* Offline Queue Indicator */}
       {!isOnline && queueCount > 0 && (
         <div className="flex items-center justify-between bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-3">
@@ -771,6 +816,13 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {/* Issue #454: PIN setup modal on first login */}
+      <PINSetupModal
+        isOpen={showPINSetup}
+        onClose={() => setShowPINSetup(false)}
+        onSuccess={() => updateUser({ pin_setup_completed: true })}
+      />
 
       {/* Recent transactions */}
       <div>
