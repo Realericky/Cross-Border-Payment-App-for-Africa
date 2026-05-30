@@ -56,6 +56,10 @@ const logger = require('./utils/logger');
 validateEnv();
 
 const app = require('./app');
+const { startScheduler } = require('./scheduler');
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => logger.info(`Server running on port ${PORT}`, { port: PORT }));
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`, { port: PORT });
+  startScheduler();
+});
