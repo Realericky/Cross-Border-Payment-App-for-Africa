@@ -508,9 +508,10 @@ fn test_deposit_into_active_escrow() {
     assert_eq!(client.get_escrow(&escrow_id).amount, amount * 2);
 }
 
-// release_escrow does not enforce expiry — agent may release after the 30-day window.
+// fix #334: release_escrow now enforces expiry — agent cannot release after the 30-day window.
 #[test]
-fn test_release_escrow_after_expiry_succeeds() {
+#[should_panic(expected = "Escrow has expired")]
+fn test_release_escrow_after_expiry_panics() {
     let (env, client, admin, usdc_id) = setup();
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -522,6 +523,43 @@ fn test_release_escrow_after_expiry_succeeds() {
 
     env.ledger().with_mut(|li| {
         li.timestamp += 30 * 24 * 60 * 60 + 1;
+    });
+
+    client.release_escrow(&agent, &escrow_id); // must panic: "Escrow has expired"
+}
+
+#[test]
+#[should_panic(expected = "Escrow has expired")]
+fn test_release_escrow_at_exact_expiry_boundary_panics() {
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let amount = 1_000_0000000i128;
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, amount);
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &amount, &250);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += 30 * 24 * 60 * 60; // exactly at boundary — >= means expired
+    });
+
+    client.release_escrow(&agent, &escrow_id); // must panic: "Escrow has expired"
+}
+
+#[test]
+fn test_release_escrow_before_expiry_succeeds() {
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let amount = 1_000_0000000i128;
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, amount);
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &amount, &250);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += 30 * 24 * 60 * 60 - 1; // one second before expiry
     });
 
     client.release_escrow(&agent, &escrow_id);
