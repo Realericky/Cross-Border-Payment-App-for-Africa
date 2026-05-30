@@ -103,7 +103,8 @@ app.use('/api/prices', pricesRoutes);
 app.use('/api/channels', channelsRoutes);
 app.use('/api/contracts', contractsRoutes);
 app.use('/api/webhooks', webhookRoutes);
-app.use('/api/dev', toolsRoutes);
+app.use('/api/tools', toolsRoutes);
+app.use('/api/dev', toolsRoutes); // legacy alias
 app.use('/api/assets', assetsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/.well-known/stellar', sep10Routes);
