@@ -1042,6 +1042,7 @@ async function getStellarStats() {
     return {
       latestLedger: ledger.sequence,
       baseFee: ledger.base_fee_in_stroops,
+      networkPassphrase,
       maxFee: ledger.max_tx_set_size,
       transactionCount: ledger.successful_transaction_count,
       operationCount: ledger.operation_count,

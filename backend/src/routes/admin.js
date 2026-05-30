@@ -17,6 +17,7 @@ const {
   executeContractUpgrade,
   getContractUpgradeStatus,
   getContractEventsEndpoint,
+  getContractEventsGlobalEndpoint,
   indexContractEventsEndpoint
 } = require('../controllers/adminController');
 
@@ -160,8 +161,9 @@ router.post(
 router.get('/contracts/:contractId/upgrade/status', getContractUpgradeStatus);
 
 /**
- * Contract Events Routes (Issue #147)
+ * Contract Events Routes (Issue #147, #527)
  */
+router.get('/contracts/events', getContractEventsGlobalEndpoint);
 router.get('/contracts/:contractId/events', getContractEventsEndpoint);
 
 router.post(
