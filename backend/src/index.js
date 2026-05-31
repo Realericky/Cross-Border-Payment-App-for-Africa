@@ -109,6 +109,7 @@ const { startScheduler } = require('./scheduler');
 const { startScheduler } = require('./jobs/scheduler');
 
 ledgerListener.setSocketIO(io);
+ledgerListener.initStreams();
 
 async function shutdown(signal) {
   logger.info(`${signal} received — shutting down gracefully`);
