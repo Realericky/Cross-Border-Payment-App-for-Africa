@@ -903,8 +903,8 @@ async function sendStrictReceivePathPayment({
  * Add (or update limit on) a trustline for a non-native asset.
  * limit defaults to the Stellar max if not provided.
  */
-async function addTrustline({ publicKey, encryptedSecretKey, asset, limit }) {
-  const assetObj = resolveAsset(asset);
+async function addTrustline({ publicKey, encryptedSecretKey, asset, limit, issuer }) {
+  const assetObj = issuer ? new StellarSdk.Asset(asset, issuer) : resolveAsset(asset);
   const secretKey = decryptPrivateKey(encryptedSecretKey);
   const keypair = StellarSdk.Keypair.fromSecret(secretKey);
 
@@ -939,8 +939,8 @@ async function addTrustline({ publicKey, encryptedSecretKey, asset, limit }) {
  * Remove a trustline by setting limit=0.
  * Stellar will reject this if the account still holds a balance of that asset.
  */
-async function removeTrustline({ publicKey, encryptedSecretKey, asset }) {
-  return addTrustline({ publicKey, encryptedSecretKey, asset, limit: '0' });
+async function removeTrustline({ publicKey, encryptedSecretKey, asset, issuer }) {
+  return addTrustline({ publicKey, encryptedSecretKey, asset, limit: '0', issuer });
 }
 
 /**
@@ -1339,6 +1339,74 @@ async function getAssetMetadataByCodeAndIssuer(code, issuer) {
 }
 
 // ---------------------------------------------------------------------------
+// Multisig approval contract — registers a wallet as a business multisig account.
+// Requires MULTISIG_APPROVAL_CONTRACT_ID env var pointing to the deployed Soroban contract.
+// ---------------------------------------------------------------------------
+
+const MULTISIG_APPROVAL_CONTRACT_ID = process.env.MULTISIG_APPROVAL_CONTRACT_ID;
+const sorobanRpcUrl = process.env.SOROBAN_RPC_URL || (isTestnet
+  ? 'https://soroban-testnet.stellar.org'
+  : 'https://mainnet.soroban.stellar.org');
+const SOROBAN_CONFIRMATION_TIMEOUT_MS = parseInt(process.env.SOROBAN_CONFIRMATION_TIMEOUT_MS || '30000', 10);
+
+async function initMultisigApproval({ publicKey, encryptedSecretKey }) {
+  if (!MULTISIG_APPROVAL_CONTRACT_ID) {
+    const err = new Error('MULTISIG_APPROVAL_CONTRACT_ID is not configured.');
+    err.status = 500;
+    throw err;
+  }
+
+  const secretKey = decryptPrivateKey(encryptedSecretKey);
+  const keypair = StellarSdk.Keypair.fromSecret(secretKey);
+  const rpc = new StellarSdk.SorobanRpc.Server(sorobanRpcUrl);
+  const account = await rpc.getAccount(publicKey);
+  const contract = new StellarSdk.Contract(MULTISIG_APPROVAL_CONTRACT_ID);
+
+  let fee;
+  try {
+    const stats = await rpc.getFeeStats();
+    fee = stats?.sorobanInclusionFee?.p90 != null
+      ? String(stats.sorobanInclusionFee.p90)
+      : String(StellarSdk.BASE_FEE * 10);
+  } catch {
+    fee = String(StellarSdk.BASE_FEE * 10);
+  }
+
+  const args = [StellarSdk.nativeToScVal(publicKey, { type: 'address' })];
+
+  const tx = new StellarSdk.TransactionBuilder(account, { fee, networkPassphrase })
+    .addOperation(contract.call('register_business', ...args))
+    .setTimeout(30)
+    .build();
+
+  const prepared = await rpc.prepareTransaction(tx);
+  prepared.sign(keypair);
+
+  const result = await rpc.sendTransaction(prepared);
+  if (result.status === 'ERROR') {
+    throw Object.assign(new Error(`register_business failed: ${result.errorResult}`), { status: 400 });
+  }
+
+  const maxIterations = Math.ceil(SOROBAN_CONFIRMATION_TIMEOUT_MS / 1000);
+  let response = result;
+  let iterations = 0;
+  while (response.status === 'PENDING' || response.status === 'NOT_FOUND') {
+    if (iterations >= maxIterations) {
+      throw Object.assign(new Error('Multisig approval confirmation timeout'), { status: 504 });
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+    response = await rpc.getTransaction(result.hash);
+    iterations++;
+  }
+
+  if (response.status !== 'SUCCESS') {
+    throw Object.assign(new Error(`Multisig approval transaction failed: ${response.status}`), { status: 400 });
+  }
+
+  return { transactionHash: result.hash };
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 module.exports = {
@@ -1382,4 +1450,5 @@ module.exports = {
   withSequenceRecovery,
   validateNetworkPassphrase,
   getAssetMetadataByCodeAndIssuer,
+  initMultisigApproval,
 };

@@ -121,6 +121,13 @@ router.post(
   '/trustline',
   [
     body('asset').trim().notEmpty().withMessage('asset is required').isAlphanumeric().isLength({ max: 12 }).withMessage('Invalid asset code'),
+    body('asset_issuer')
+      .if(body('asset').not().equals('XLM'))
+      .notEmpty().withMessage('asset_issuer is required for non-XLM assets')
+      .custom((v) => {
+        if (!StellarSdk.StrKey.isValidEd25519PublicKey(v)) throw new Error('asset_issuer must be a valid Stellar public key');
+        return true;
+      }),
     body('limit').optional().isFloat({ min: 0 }).withMessage('limit must be a non-negative number'),
     body('wallet_id').optional().isUUID().withMessage('wallet_id must be a valid UUID'),
   ],
@@ -129,7 +136,16 @@ router.post(
 );
 router.delete(
   '/trustline/:asset',
-  [param('asset').isAlphanumeric().isLength({ max: 12 }).withMessage('Invalid asset code')],
+  [
+    param('asset').isAlphanumeric().isLength({ max: 12 }).withMessage('Invalid asset code'),
+    query('asset_issuer')
+      .optional()
+      .custom((v) => {
+        if (!StellarSdk.StrKey.isValidEd25519PublicKey(v)) throw new Error('asset_issuer must be a valid Stellar public key');
+        return true;
+      }),
+    query('wallet_id').optional().isUUID().withMessage('wallet_id must be a valid UUID'),
+  ],
   validate,
   removeTrustlineHandler,
 );
@@ -153,7 +169,12 @@ router.post(
 );
 
 // Multisig / business account routes
-router.post('/upgrade-business', upgradeToBusinessAccount);
+router.post(
+  '/upgrade-business',
+  [body('wallet_id').optional().isUUID().withMessage('wallet_id must be a valid UUID')],
+  validate,
+  upgradeToBusinessAccount,
+);
 router.get('/signers', listSigners);
 router.get('/signers/horizon', getSignersFromHorizon);
 router.post('/clear-inflation-destination', clearInflationDestinationHandler);
