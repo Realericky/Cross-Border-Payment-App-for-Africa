@@ -1,4 +1,5 @@
 const router = require("express").Router();
+﻿const router = require("express").Router();
 const { body, query, validationResult } = require("express-validator");
 const StellarSdk = require("@stellar/stellar-sdk");
 const authMiddleware = require("../middleware/auth");
@@ -96,6 +97,26 @@ router.get(
 );
 
 /**
+ * POST /api/payments/send
+ * @protected @idempotent
+ * Idempotency-Key header prevents duplicate payments on client retry.
+ * Closes #492
+ */
+router.post(
+  "/send",
+  paymentSendValidators,
+  validate,
+  idempotency,
+  send,
+);
+
+/**
+ * POST /api/payments/batch
+ * @protected @idempotent
+ */
+router.post("/batch", paymentBatchValidators, validate, idempotency, sendBatch);
+
+/**
  * @swagger
  * /api/payments/history:
  *   get:
@@ -110,7 +131,7 @@ router.get(
  *           type: string
  *           enum: [sent, received, all]
  *           default: all
- *         description: Filter by transaction direction. Translated to a SQL WHERE clause on sender_wallet or recipient_wallet.
+ *         description: Filter by transaction direction.
  *       - in: query
  *         name: from
  *         schema:
@@ -149,6 +170,7 @@ router.get(
 router.get(
   "/history",
   [
+    query('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer'),
     query("limit").optional().isInt({ min: 1, max: 100 }).withMessage("limit must be between 1 and 100"),
     query("from").optional({ values: "falsy" }).trim().isISO8601().withMessage("from must be a valid ISO 8601 date"),
     query("to").optional({ values: "falsy" }).trim().isISO8601().withMessage("to must be a valid ISO 8601 date"),
@@ -190,6 +212,7 @@ router.post(
  * @protected @idempotent
  * Idempotency-Key header prevents duplicate path payments on client retry
  * (e.g. network timeout causing the client to resend the same request).
+ * Closes #493
  */
 router.post(
   "/send-path",

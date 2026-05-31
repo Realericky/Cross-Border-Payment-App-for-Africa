@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const StellarSdk = require('@stellar/stellar-sdk');
 const authMiddleware = require('../middleware/auth');
 const isAdmin = require('../middleware/isAdmin');
+const ipAllowlist = require('../middleware/ipAllowlist');
 const { issueTokens } = require('../controllers/assetController');
 const {
   getStats,
@@ -26,6 +27,7 @@ const validate = (req, res, next) => {
   next();
 };
 
+router.use(ipAllowlist);
 router.use(authMiddleware);
 router.use(isAdmin);
 
