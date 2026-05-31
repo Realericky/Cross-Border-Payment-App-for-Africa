@@ -53,6 +53,19 @@ router.use(authMiddleware);
 router.get("/estimate-fee", estimateFee);
 router.get("/fee-stats", getFeeStats);
 
+/**
+ * POST /api/payments/send
+ * @protected @idempotent
+ * Idempotency-Key header prevents duplicate payments on client retry.
+ */
+router.post("/send", paymentSendValidators, validate, idempotency, send);
+
+/**
+ * POST /api/payments/batch
+ * @protected @idempotent
+ */
+router.post("/batch", paymentBatchValidators, validate, idempotency, sendBatch);
+
 // Federation address resolution
 router.get(
   "/resolve-federation",
