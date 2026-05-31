@@ -332,6 +332,11 @@ impl EscrowContract {
         if escrow.status != EscrowStatus::Pending {
             panic!("Escrow is not in pending state");
         }
+        // Expiry guard: expired escrows must be cancelled by the sender via
+        // cancel_escrow — the agent cannot release funds after the protection window.
+        if env.ledger().timestamp() >= escrow.expires_at {
+            panic!("Escrow has expired");
+        }
 
         let fee_amount = (escrow.amount * escrow.release_fee_bps as i128) / 10000;
         let agent_amount = escrow.amount - fee_amount;
