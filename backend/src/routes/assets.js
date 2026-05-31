@@ -1,10 +1,12 @@
 const router = require('express').Router();
+const { getAssetMetadata, getAssetByParams } = require('../controllers/assetController');
 const { body, validationResult } = require('express-validator');
 const auth = require('../middleware/auth');
 const isAdmin = require('../middleware/isAdmin');
 const { issueTokens, getAssetMetadata } = require('../controllers/assetController');
 
 router.get('/AFRI/info', getAssetMetadata);
+router.get('/:code/:issuer', getAssetByParams);
 
 /**
  * @openapi
