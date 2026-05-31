@@ -111,6 +111,7 @@ app.use('/api/dev', toolsRoutes); // legacy alias
 app.use('/api/assets', assetsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/.well-known/stellar', sep10Routes);
+app.use('/api/sep10', sep10Routes);
 app.use('/api/sep31', sep31Routes);
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev', devRoutes);
