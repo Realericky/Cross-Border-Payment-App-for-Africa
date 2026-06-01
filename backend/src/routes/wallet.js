@@ -27,6 +27,7 @@ const {
 } = require('../controllers/walletController');
 const { getContacts, addContact, deleteContact } = require('../controllers/contactsController');
 const { getStatus } = require('../services/horizonRateLimit');
+const isAdminOrOwner = require('../middleware/isAdminOrOwner');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -154,11 +155,12 @@ router.post(
 
 // Multisig / business account routes
 router.post('/upgrade-business', upgradeToBusinessAccount);
-router.get('/signers', listSigners);
+router.get('/signers', isAdminOrOwner, listSigners);
 router.get('/signers/horizon', getSignersFromHorizon);
 router.post('/clear-inflation-destination', clearInflationDestinationHandler);
 router.post(
   '/signers',
+  isAdminOrOwner,
   [
     body('signer_public_key')
       .notEmpty()
@@ -174,6 +176,7 @@ router.post(
 );
 router.delete(
   '/signers/:signer_public_key',
+  isAdminOrOwner,
   [
     param('signer_public_key').custom((v) => {
       if (!StellarSdk.StrKey.isValidEd25519PublicKey(v)) throw new Error('Invalid Stellar public key');
