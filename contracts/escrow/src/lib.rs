@@ -31,6 +31,14 @@ pub struct EscrowCancelled {
 
 #[derive(Clone)]
 #[contracttype]
+pub struct EscrowExpired {
+    pub escrow_id: u64,
+    pub refund_amount: i128,
+    pub expired_at: u64,
+}
+
+#[derive(Clone)]
+#[contracttype]
 pub struct Upgraded {
     pub new_wasm_hash: BytesN<32>,
 }
@@ -331,6 +339,51 @@ impl EscrowContract {
         );
     }
 
+    /// Permissionless auto-refund triggered by anyone once the escrow expiry timestamp
+    /// has passed. Refunds the full remaining balance to the original sender.
+    pub fn expire_escrow(env: Env, escrow_id: u64) {
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(escrow_id))
+            .unwrap_or_else(|| panic!("Escrow {} not found", escrow_id));
+
+        if escrow.status != EscrowStatus::Pending {
+            panic!("Escrow is not in pending state");
+        }
+
+        let now = env.ledger().timestamp();
+        if now < escrow.expires_at {
+            panic!("Escrow has not expired yet");
+        }
+
+        let usdc_address: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::UsdcAddress)
+            .expect("Contract not initialized");
+
+        token::Client::new(&env, &usdc_address).transfer(
+            &env.current_contract_address(),
+            &escrow.sender,
+            &escrow.amount,
+        );
+
+        escrow.status = EscrowStatus::Cancelled;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(escrow_id), &escrow);
+
+        env.events().publish(
+            (Symbol::new(&env, "EscrowExpired"),),
+            EscrowExpired {
+                escrow_id,
+                refund_amount: escrow.amount,
+                expired_at: now,
+            },
+        );
+    }
+
     pub fn get_escrow(env: Env, escrow_id: u64) -> Escrow {
         env.storage()
             .persistent()
@@ -356,7 +409,6 @@ impl EscrowContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap();
             .expect("Contract not initialized");
 
         if admin != stored_admin {
@@ -377,7 +429,6 @@ impl EscrowContract {
             .storage()
             .persistent()
             .get(&DataKey::UsdcAddress)
-            .unwrap();
             .expect("Contract not initialized");
 
         token::Client::new(&env, &usdc_address).transfer(
@@ -392,7 +443,6 @@ impl EscrowContract {
     }
 
     pub fn get_metadata(env: Env) -> (Address, Address) {
-        let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         let admin: Address = env
             .storage()
             .persistent()
@@ -402,7 +452,6 @@ impl EscrowContract {
             .storage()
             .persistent()
             .get(&DataKey::UsdcAddress)
-            .unwrap();
             .expect("Contract not initialized");
         (admin, usdc_address)
     }
