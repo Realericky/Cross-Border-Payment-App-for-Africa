@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useMemoValidation } from '../hooks/useMemoValidation';
 import { useNavigate, useSearchParams, useBeforeUnload } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -85,6 +86,7 @@ export default function SendMoney() {
   const [pathLoading, setPathLoading] = useState(false);
   const [memoRequired, setMemoRequired] = useState(false);
   const [memoError, setMemoError] = useState(false);
+  const { memoError: hashMemoError, validateMemo, getMemoPlaceholder, isMemoValid } = useMemoValidation();
   const memoRef = useRef(null);
   const [addressError, setAddressError] = useState(false);
   // 'send' = strict send (sender specifies exact amount), 'receive' = strict receive (recipient gets exact amount)
@@ -1190,16 +1192,23 @@ export default function SendMoney() {
             onChange={(e) => {
               setForm({ ...form, memo: e.target.value });
               setMemoError(false);
+              validateMemo(form.memo_type, e.target.value);
             }}
+            placeholder={getMemoPlaceholder(form.memo_type)}
             className={`w-full bg-gray-800 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none transition-colors font-mono text-sm border ${
-              memoError
+              memoError || hashMemoError
                 ? 'border-red-500 focus:border-red-400'
                 : 'border-gray-700 focus:border-primary-500'
             }`}
           />
           {memoError && (
-            <p className="mt-1 text-xs text-red-400">
+            <p className="mt-1 text-xs text-red-400" role="alert">
               A memo is required for this recipient. Please add one before sending.
+            </p>
+          )}
+          {hashMemoError && !memoError && (
+            <p className="mt-1 text-xs text-red-400" role="alert">
+              {hashMemoError}
             </p>
           )}
           {memoTrimmed ? (
@@ -1210,7 +1219,10 @@ export default function SendMoney() {
               <select
                 id="memo-type"
                 value={form.memo_type}
-                onChange={(e) => setForm({ ...form, memo_type: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, memo_type: e.target.value });
+                  validateMemo(e.target.value, form.memo);
+                }}
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary-500 transition-colors"
               >
                 <option value="text">{t('send.memo_type_text')}</option>
@@ -1354,6 +1366,7 @@ export default function SendMoney() {
             loading ||
             (isCrossAsset && !pathResult) ||
             (memoRequired && !form.memo.trim()) ||
+            !isMemoValid(form.memo_type, form.memo) ||
             addressError ||
             (!!form.recipient_address && !isValidStellarAddress(form.recipient_address))
           }

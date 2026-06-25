@@ -148,6 +148,15 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    /// Initialize the escrow contract.
+    ///
+    /// SECURITY — front-running prevention (#336):
+    /// This function must be called in the same transaction as deployment, or
+    /// immediately after deployment with no manual steps in between. The deploy
+    /// script (`contracts/deploy.sh`) handles this automatically.
+    ///
+    /// Re-initialization is permanently blocked by the `has(Admin)` guard.
+    /// There is no mechanism to change the admin after initialization.
     pub fn initialize(env: Env, admin: Address, usdc_address: Address) {
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("Contract already initialized");
@@ -331,6 +340,11 @@ impl EscrowContract {
         }
         if escrow.status != EscrowStatus::Pending {
             panic!("Escrow is not in pending state");
+        }
+        // Expiry guard: expired escrows must be cancelled by the sender via
+        // cancel_escrow — the agent cannot release funds after the protection window.
+        if env.ledger().timestamp() >= escrow.expires_at {
+            panic!("Escrow has expired");
         }
 
         let fee_amount = (escrow.amount * escrow.release_fee_bps as i128) / 10000;

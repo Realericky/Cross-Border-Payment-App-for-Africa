@@ -124,6 +124,18 @@ describe('Dashboard', () => {
     );
   });
 
+  test('shows retryable wallet error state when wallet data cannot be loaded', async () => {
+    api.get.mockRejectedValue(new Error('wallet unavailable'));
+
+    renderDashboard();
+
+    expect(
+      await screen.findByText('Could not load wallet data. Check your connection and try again.')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Copy wallet address/i })).not.toBeInTheDocument();
+  });
+
   test('renders recent transactions list', async () => {
     api.get
       .mockResolvedValueOnce(walletResponse)

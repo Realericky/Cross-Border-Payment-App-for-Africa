@@ -444,18 +444,31 @@ export default function TransactionHistory() {
                     </p>
                     {tx.memo && <p className="text-xs text-gray-600 mt-0.5">&quot;{tx.memo}&quot;</p>}
                     <div className="flex items-center justify-between mt-2">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${
-                          STATUS_COLORS[tx.status] || STATUS_COLORS.pending
-                        }`}
-                      >
-                        {tx.status === 'confirming' ? (
-                          <span className="flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block" />
-                            Confirming...
-                          </span>
-                        ) : tx.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            STATUS_COLORS[tx.status] || STATUS_COLORS.pending
+                          }`}
+                        >
+                          {tx.status === 'confirming' ? (
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block" />
+                              Confirming...
+                            </span>
+                          ) : tx.status}
+                        </span>
+                        {tx.type === 'claimable_balance' && tx.status === 'pending' && (() => {
+                          const daysLeft = getDaysUntilExpiry(tx.created_at);
+                          if (daysLeft > 0 && daysLeft <= 7) {
+                            return (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">
+                                ⏰ Expires in {daysLeft}d
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                       <div className="flex items-center gap-2">
                         <div className="text-right">
                           <span className="text-xs text-gray-500 block">
@@ -473,13 +486,13 @@ export default function TransactionHistory() {
                         </div>
                         {tx.tx_hash && (
                           <a
-                            href={`https://stellar.expert/explorer/testnet/tx/${tx.tx_hash}`}
+                            href={`https://stellar.expert/explorer/${process.env.REACT_APP_STELLAR_NETWORK || 'testnet'}/tx/${tx.tx_hash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-gray-500 hover:text-primary-400 transition-colors"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <ExternalLink size={12} aria-label="View transaction on Stellar Explorer" />
+                            <ExternalLink size={12} aria-hidden="true" />
                           </a>
                         )}
                         <button

@@ -17,8 +17,9 @@ import {
   EyeOff,
   Clock,
   Mail,
+  Bell,
+  X,
 } from 'lucide-react';
-import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown, PiggyBank, Eye, EyeOff, Clock, Bell, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BalanceCardSkeleton, TransactionRowSkeleton } from '../components/Skeleton';
 import api from '../utils/api';
@@ -47,6 +48,12 @@ function BalanceDisplay({ balance }) {
       {animated.toLocaleString()}
     </span>
   );
+}
+
+function normalizeWalletsResponse(data) {
+  if (Array.isArray(data?.wallets)) return data.wallets;
+  if (data?.public_key) return [data];
+  return [];
 }
 
 export default function Dashboard() {
@@ -118,6 +125,7 @@ export default function Dashboard() {
   const [balanceIncreased, setBalanceIncreased] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [showZeroBalances, setShowZeroBalances] = useState(false);
+  const [walletError, setWalletError] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
   const { currencies, convertFromXLM, usingApproximateRates } = useExchangeRates();
   const { isOnline } = useOnlineStatus();
@@ -174,6 +182,7 @@ export default function Dashboard() {
           setWallets(cachedWallets.data);
           setActiveWalletId((id) => id || cachedWallets.data[0]?.id || null);
           setFromCache(true);
+          setWalletError(false);
         }
         if (cachedHistory?.data) {
           setTransactions(cachedHistory.data.slice(0, 5));
@@ -193,7 +202,7 @@ export default function Dashboard() {
         api.get('/payments/history'),
         api.get('/scheduled-payments').catch(() => ({ data: { payments: [] } })),
       ]);
-      const walletsData = walletsRes.data.wallets;
+      const walletsData = normalizeWalletsResponse(walletsRes.data);
       const txData = txRes.data.transactions;
 
       setWallets(walletsData);
@@ -202,8 +211,11 @@ export default function Dashboard() {
       setScheduledPayments((scheduledRes.data.payments || []).filter((p) => p.active).slice(0, 3));
       setScheduledLoading(false);
       setFromCache(false);
+      setWalletError(walletsData.length === 0);
 
-      await Promise.all([setCacheEntry('wallets', walletsData), setCacheEntry('history', txData)]);
+      await Promise.all([setCacheEntry('wallets', walletsData), setCacheEntry('history', txData)]).catch(
+        () => {}
+      );
     } catch {
       try {
         const [cachedWallets, cachedHistory] = await Promise.all([
@@ -214,17 +226,27 @@ export default function Dashboard() {
           setWallets(cachedWallets.data);
           setActiveWalletId((id) => id || cachedWallets.data[0]?.id || null);
           setFromCache(true);
+          setWalletError(false);
         }
         if (cachedHistory?.data) {
           setTransactions(cachedHistory.data.slice(0, 5));
         }
-        if (!cachedWallets?.data) toast.error('Failed to load wallet data');
+        if (!cachedWallets?.data) {
+          setWallets([]);
+          setActiveWalletId(null);
+          setWalletError(true);
+          toast.error('Failed to load wallet data');
+        }
       } catch {
+        setWallets([]);
+        setActiveWalletId(null);
+        setWalletError(true);
         toast.error('Failed to load wallet data');
       }
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setScheduledLoading(false);
     }
   }, []);
 
@@ -238,7 +260,8 @@ export default function Dashboard() {
   }, [loadDashboard, isOnline]);
 
   const copyAddress = () => {
-    navigator.clipboard.writeText(wallet?.public_key || '');
+    if (!wallet?.public_key) return;
+    navigator.clipboard.writeText(wallet.public_key);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -249,7 +272,9 @@ export default function Dashboard() {
       const res = await api.post('/dev/fund-wallet');
       toast.success(res.data.message);
       const walletsRes = await api.get('/wallet/list');
-      setWallets(walletsRes.data.wallets);
+      const walletsData = normalizeWalletsResponse(walletsRes.data);
+      setWallets(walletsData);
+      setWalletError(walletsData.length === 0);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Funding failed');
     } finally {
@@ -313,6 +338,7 @@ export default function Dashboard() {
     selectedCurrency === 'XLM'
       ? selectedAssetBalance
       : convertFromXLM(xlmBalance, selectedCurrency);
+  const walletUnavailable = !loading && walletError && !wallet;
 
   const {
     pullDistance,
@@ -443,6 +469,9 @@ export default function Dashboard() {
           >
             <X size={16} />
           </button>
+        </div>
+      )}
+
       {/* Offline Queue Indicator */}
       {!isOnline && queueCount > 0 && (
         <div className="flex items-center justify-between bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-3">
@@ -501,7 +530,28 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {walletUnavailable && (
+        <div
+          role="alert"
+          className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-4 text-red-300"
+        >
+          <p className="text-sm font-medium">
+            Could not load wallet data. Check your connection and try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => loadDashboard(true)}
+            disabled={refreshing}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-500/20 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/30 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Wallet Selector */}
+      {!walletUnavailable && (
       <div className="relative">
         <button
           onClick={() => setShowWalletDropdown((v) => !v)}
@@ -611,11 +661,12 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      )}
 
       {/* Balance Card */}
       {loading ? (
         <BalanceCardSkeleton />
-      ) : (
+      ) : walletUnavailable ? null : (
         <div
           className={`bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl p-5 shadow-lg shadow-primary-500/20 transition-all duration-500 ${
             balanceIncreased ? 'ring-4 ring-green-400 ring-opacity-50' : ''
@@ -647,7 +698,7 @@ export default function Dashboard() {
             <div className="mb-3 space-y-1">
               {visibleBalances.map((b) => {
                 const assetMeta = currencies.find((c) => c.code === b.asset);
-                const flag = assetMeta?.flag ?? '🪙';
+                const flag = assetMeta?.flag ?? 'XLM';
                 const isSelected = b.asset === selectedCurrency;
                 return (
                   <button
@@ -710,46 +761,17 @@ export default function Dashboard() {
             <span className="text-primary-200 text-xs font-mono flex-1 truncate">
               {truncateAddress(wallet?.public_key, 10)}
             </span>
-            <button
-              onClick={copyAddress}
-              className="text-primary-200 hover:text-white shrink-0"
-              aria-label={copied ? 'Address copied' : 'Copy wallet address'}
-        {/* Fiat currency selector */}
-        <div className="flex gap-2 flex-wrap mb-3">
-          {currencies.map((c) => (
-            <button
-              key={c.code}
-              onClick={() => setSelectedCurrency(c.code)}
-              className={`text-xs px-2.5 py-1 rounded-full transition-colors ${selectedCurrency === c.code
-                  ? 'bg-white text-primary-700 font-semibold'
-                  : 'bg-primary-500/40 text-primary-100 hover:bg-primary-500/60'
-                }`}
-              title={`View balance in ${c.name}`}
-            >
-              {copied ? <CheckCheck size={14} /> : <Copy size={14} />}
-            </button>
+            {wallet?.public_key && (
+              <button
+                onClick={copyAddress}
+                className="text-primary-200 hover:text-white shrink-0 transition-colors"
+                aria-label={copied ? 'Address copied to clipboard' : 'Copy wallet address'}
+                title={copied ? 'Copied!' : 'Copy address'}
+              >
+                {copied ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
+              </button>
+            )}
           </div>
-          ))}
-        </div>
-        {usingApproximateRates && (
-          <p className="text-primary-200/90 text-xs mb-3 leading-snug">
-            {t('common.rates_disclaimer')}
-          </p>
-        )}
-
-        {/* Wallet address */}
-        <div className="flex items-center gap-2 bg-primary-800/40 rounded-lg px-3 py-2">
-          <span className="text-primary-200 text-xs font-mono flex-1 truncate">
-            {truncateAddress(wallet?.public_key, 10)}
-          </span>
-          <button
-            onClick={copyAddress}
-            className="text-primary-200 hover:text-white shrink-0 transition-colors"
-            aria-label={copied ? 'Address copied to clipboard' : 'Copy wallet address'}
-            title={copied ? 'Copied!' : 'Copy address'}
-          >
-            {copied ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
-          </button>
         </div>
       )}
 

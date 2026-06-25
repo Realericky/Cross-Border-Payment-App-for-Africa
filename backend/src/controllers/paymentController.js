@@ -181,6 +181,10 @@ async function getFeeStats(req, res, next) {
 }
 async function send(req, res, next) {
   const txId = uuidv4();
+  // declare these in outer scope so the catch block can reference them safely
+  let public_key, encrypted_secret_key, recipient_address, amount, asset, memo;
+  try {
+    ({ recipient_address, amount, asset = "XLM", memo } = req.body);
   let public_key;
   let recipient_address, amount, asset, memo, memo_type;
 
@@ -243,6 +247,7 @@ async function send(req, res, next) {
     const walletResult = await db.query(walletQuery.text, walletQuery.values);
     if (!walletResult.rows[0]) return res.status(404).json({ error: "Wallet not found" });
 
+    ({ public_key, encrypted_secret_key } = walletResult.rows[0]);
     ({ public_key } = walletResult.rows[0]);
     const { encrypted_secret_key } = walletResult.rows[0];
 
@@ -374,6 +379,11 @@ async function send(req, res, next) {
       },
     });
   } catch (err) {
+    // Do not persist a failed transaction here; let caller decide and avoid
+    // creating records when Stellar submission fails during business logic.
+    if (err.status === 400 || err.status === 500) {
+      webhook.deliver('payment.failed', { error: err.message }).catch(() => {});
+      return res.status(err.status).json({ error: err.message });
     // Issue #243: Insert a failed transaction record when sendPayment throws
     // and the sender wallet is known, to maintain a full audit trail.
     if (public_key) {
