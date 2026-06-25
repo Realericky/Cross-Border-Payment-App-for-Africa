@@ -24,6 +24,16 @@ pub struct EscrowReleased {
 
 #[derive(Clone)]
 #[contracttype]
+pub struct EscrowPartiallyReleased {
+    pub escrow_id: u64,
+    pub released_amount: i128,
+    pub agent_amount: i128,
+    pub fee_amount: i128,
+    pub remaining_amount: i128,
+}
+
+#[derive(Clone)]
+#[contracttype]
 pub struct EscrowCancelled {
     pub escrow_id: u64,
     pub refund_amount: i128,
@@ -289,6 +299,73 @@ impl EscrowContract {
         );
     }
 
+    /// Release a partial amount from a pending escrow. Useful for milestone-based
+    /// payments where the agent confirms delivery in stages. The escrow remains
+    /// Pending until explicitly fully released or cancelled.
+    pub fn partial_release(env: Env, agent: Address, escrow_id: u64, release_amount: i128) {
+        agent.require_auth();
+
+        if release_amount <= 0 {
+            panic!("Release amount must be positive");
+        }
+
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(escrow_id))
+            .unwrap_or_else(|| panic!("Escrow {} not found", escrow_id));
+
+        if agent != escrow.agent {
+            panic!("Only the agent can release escrow");
+        }
+        if escrow.status != EscrowStatus::Pending {
+            panic!("Escrow is not in pending state");
+        }
+        if release_amount > escrow.amount {
+            panic!("Release amount exceeds escrow balance");
+        }
+
+        let fee_amount = (release_amount * escrow.release_fee_bps as i128) / 10000;
+        let agent_amount = release_amount - fee_amount;
+
+        let usdc_address: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::UsdcAddress)
+            .expect("Contract not initialized");
+
+        token::Client::new(&env, &usdc_address).transfer(
+            &env.current_contract_address(),
+            &escrow.agent,
+            &agent_amount,
+        );
+
+        let current_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedFees)
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&DataKey::AccumulatedFees, &(current_fees + fee_amount));
+
+        escrow.amount -= release_amount;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(escrow_id), &escrow);
+
+        env.events().publish(
+            (Symbol::new(&env, "EscrowPartiallyReleased"),),
+            EscrowPartiallyReleased {
+                escrow_id,
+                released_amount: release_amount,
+                agent_amount,
+                fee_amount,
+                remaining_amount: escrow.amount,
+            },
+        );
+    }
+
     pub fn cancel_escrow(env: Env, sender: Address, escrow_id: u64) {
         sender.require_auth();
 
@@ -356,7 +433,6 @@ impl EscrowContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap();
             .expect("Contract not initialized");
 
         if admin != stored_admin {
@@ -377,7 +453,6 @@ impl EscrowContract {
             .storage()
             .persistent()
             .get(&DataKey::UsdcAddress)
-            .unwrap();
             .expect("Contract not initialized");
 
         token::Client::new(&env, &usdc_address).transfer(
@@ -392,7 +467,6 @@ impl EscrowContract {
     }
 
     pub fn get_metadata(env: Env) -> (Address, Address) {
-        let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         let admin: Address = env
             .storage()
             .persistent()
@@ -402,7 +476,6 @@ impl EscrowContract {
             .storage()
             .persistent()
             .get(&DataKey::UsdcAddress)
-            .unwrap();
             .expect("Contract not initialized");
         (admin, usdc_address)
     }
