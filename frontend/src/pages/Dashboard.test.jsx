@@ -9,10 +9,10 @@ import Dashboard from './Dashboard';
 
 jest.mock('../utils/api', () => ({
   __esModule: true,
-  default: { get: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn() },
 }));
 
-jest.mock('react-hot-toast', () => ({ error: jest.fn() }));
+jest.mock('react-hot-toast', () => ({ error: jest.fn(), success: jest.fn() }));
 
 import api from '../utils/api';
 import { convertFromXLM } from '../utils/currency';
@@ -49,16 +49,28 @@ const sampleTxs = [
   },
 ];
 
-function renderDashboard() {
+function renderDashboard(Component = Dashboard) {
   return render(
     <I18nextProvider i18n={i18n}>
       <MemoryRouter>
         <AuthContext.Provider value={{ user: mockUser }}>
-          <Dashboard />
+          <Component />
         </AuthContext.Provider>
       </MemoryRouter>
     </I18nextProvider>
   );
+}
+
+function renderDashboardWithEnv(env) {
+  const originalNetwork = process.env.REACT_APP_STELLAR_NETWORK;
+  process.env.REACT_APP_STELLAR_NETWORK = env;
+  jest.resetModules();
+  try {
+    const DashboardModule = require('./Dashboard').default;
+    return renderDashboard(DashboardModule);
+  } finally {
+    process.env.REACT_APP_STELLAR_NETWORK = originalNetwork;
+  }
 }
 
 const COINGECKO_FIXTURE = {
@@ -112,6 +124,18 @@ describe('Dashboard', () => {
     );
   });
 
+  test('shows retryable wallet error state when wallet data cannot be loaded', async () => {
+    api.get.mockRejectedValue(new Error('wallet unavailable'));
+
+    renderDashboard();
+
+    expect(
+      await screen.findByText('Could not load wallet data. Check your connection and try again.')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Copy wallet address/i })).not.toBeInTheDocument();
+  });
+
   test('renders recent transactions list', async () => {
     api.get
       .mockResolvedValueOnce(walletResponse)
@@ -124,6 +148,89 @@ describe('Dashboard', () => {
     );
 
     expect(screen.getByText('+25.00 XLM')).toBeInTheDocument();
+  });
+
+  test('shows Friendbot funding button on testnet for zero XLM balance', async () => {
+    api.get
+      .mockResolvedValueOnce({ data: { wallets: [{ id: '1', public_key: walletResponse.data.public_key, balances: [{ asset: 'XLM', balance: '0' }], account_exists: true }] } })
+      .mockResolvedValueOnce(historyResponse());
+
+    renderDashboard();
+
+    await waitFor(() =>
+      expect(document.querySelector('.animate-spin')).not.toBeInTheDocument()
+    );
+
+    expect(screen.getByRole('button', { name: /Fund wallet/i })).toBeInTheDocument();
+  });
+
+  test('shows Friendbot funding button on testnet when account does not exist', async () => {
+    api.get
+      .mockResolvedValueOnce({ data: { wallets: [{ id: '1', public_key: walletResponse.data.public_key, balances: [{ asset: 'XLM', balance: '100.0000000' }], account_exists: false }] } })
+      .mockResolvedValueOnce(historyResponse());
+
+    renderDashboard();
+
+    await waitFor(() =>
+      expect(document.querySelector('.animate-spin')).not.toBeInTheDocument()
+    );
+
+    expect(screen.getByRole('button', { name: /Fund wallet/i })).toBeInTheDocument();
+  });
+
+  test('hides Friendbot funding button on testnet for funded accounts', async () => {
+    api.get
+      .mockResolvedValueOnce({ data: { wallets: [{ id: '1', public_key: walletResponse.data.public_key, balances: [{ asset: 'XLM', balance: '100.0000000' }], account_exists: true }] } })
+      .mockResolvedValueOnce(historyResponse());
+
+    renderDashboard();
+
+    await waitFor(() =>
+      expect(document.querySelector('.animate-spin')).not.toBeInTheDocument()
+    );
+
+    expect(screen.queryByRole('button', { name: /Fund wallet/i })).not.toBeInTheDocument();
+  });
+
+  test('never shows Friendbot funding button on mainnet', async () => {
+    api.get
+      .mockResolvedValueOnce({ data: { wallets: [{ id: '1', public_key: walletResponse.data.public_key, balances: [{ asset: 'XLM', balance: '0' }], account_exists: false }] } })
+      .mockResolvedValueOnce(historyResponse());
+
+    const { rerender } = renderDashboardWithEnv('mainnet');
+
+    await waitFor(() =>
+      expect(document.querySelector('.animate-spin')).not.toBeInTheDocument()
+    );
+
+    expect(screen.queryByRole('button', { name: /Fund wallet/i })).not.toBeInTheDocument();
+  });
+
+  test('successful Friendbot funding refreshes balance and hides the button', async () => {
+    api.get
+      .mockResolvedValueOnce({ data: { wallets: [{ id: '1', public_key: walletResponse.data.public_key, balances: [{ asset: 'XLM', balance: '0' }], account_exists: false }] } })
+      .mockResolvedValueOnce(historyResponse())
+      .mockResolvedValueOnce({ data: { wallets: [{ id: '1', public_key: walletResponse.data.public_key, balances: [{ asset: 'XLM', balance: '100.0000000' }], account_exists: true }] } });
+    api.post.mockResolvedValueOnce({ data: { message: 'Wallet funded' } });
+
+    renderDashboard();
+
+    await waitFor(() =>
+      expect(document.querySelector('.animate-spin')).not.toBeInTheDocument()
+    );
+
+    const fundButton = screen.getByRole('button', { name: /Fund wallet/i });
+    await userEvent.click(fundButton);
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/dev/fund-wallet')
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Fund wallet/i })).not.toBeInTheDocument()
+    );
+
+    expect(screen.getByText('100')).toBeInTheDocument();
   });
 
   test.each(['NGN', 'USD', 'GHS', 'KES'])(

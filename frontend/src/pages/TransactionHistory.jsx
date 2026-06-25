@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Download, ExternalLink, Filter, Search, Flag, X, WifiOff } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Send, Download, ExternalLink, Filter, Search, Flag, X, WifiOff, Loader2, Copy, CheckCheck } from 'lucide-react';
 import api from '../utils/api';
 import { truncateAddress } from '../utils/currency';
 import { TransactionCardSkeleton } from '../components/Skeleton';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { setCacheEntry, getCacheEntry } from '../utils/offlineDB';
 import { useTranslation } from 'react-i18next';
+import toast from 'react-hot-toast';
 
 const STATUS_COLORS = {
   completed: 'text-primary-400 bg-primary-500/10',
@@ -22,6 +23,8 @@ function getDaysUntilExpiry(createdAt) {
   const now = Date.now();
   const daysLeft = Math.ceil((expiresAt - now) / (24 * 60 * 60 * 1000));
   return daysLeft;
+}
+
 const ASSET_OPTIONS = ['XLM', 'USDC', 'NGN', 'GHS', 'KES'];
 
 function buildHistoryParams(cursor, dateFrom, dateTo, asset) {
@@ -35,30 +38,66 @@ function buildHistoryParams(cursor, dateFrom, dateTo, asset) {
 
 export default function TransactionHistory() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation();
   const { isOnline } = useOnlineStatus();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [filter, setFilter] = useState('all');
   const [nextCursor, setNextCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState(null);
   const [fromCache, setFromCache] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [asset, setAsset] = useState('');
+
+  // Filter state derived from URL params
+  const filter = searchParams.get('direction') || 'all';
+  const dateFrom = searchParams.get('from') || '';
+  const dateTo = searchParams.get('to') || '';
+  const asset = searchParams.get('asset') || '';
+
+  function setFilter(value) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value === 'all') next.delete('direction'); else next.set('direction', value);
+      return next;
+    }, { replace: true });
+  }
+  function setDateFrom(value) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('from', value); else next.delete('from');
+      return next;
+    }, { replace: true });
+  }
+  function setDateTo(value) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('to', value); else next.delete('to');
+      return next;
+    }, { replace: true });
+  }
+  function setAsset(value) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('asset', value); else next.delete('asset');
+      return next;
+    }, { replace: true });
+  }
   const [reportTx, setReportTx] = useState(null); // tx being reported
   const [reportType, setReportType] = useState('other');
   const [reportDesc, setReportDesc] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedTx, setSelectedTx] = useState(null); // tx detail modal
+  const [copiedHash, setCopiedHash] = useState(false);
 
   const fetchInitial = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNextCursor(null);
+    setCurrentPage(1);
 
     // Offline — serve from IndexedDB cache
     if (!navigator.onLine) {
@@ -122,9 +161,22 @@ export default function TransactionHistory() {
     fetchInitial();
   }, [fetchInitial]);
 
+  // Sync current page number to URL query string for bookmarking
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('page', String(currentPage));
+        return next;
+      },
+      { replace: true }
+    );
+  }, [currentPage, setSearchParams]);
+
   const loadMore = () => {
     if (!nextCursor) return;
     setLoadingMore(true);
+    const nextPage = currentPage + 1;
     const params = buildHistoryParams(nextCursor, dateFrom, dateTo, asset);
     api
       .get('/payments/history', { params })
@@ -132,6 +184,7 @@ export default function TransactionHistory() {
         setTransactions((prev) => [...prev, ...r.data.transactions]);
         setHasMore(r.data.has_more);
         setNextCursor(r.data.next_cursor || null);
+        setCurrentPage(nextPage);
       })
       .catch(() => {})
       .finally(() => setLoadingMore(false));
@@ -157,24 +210,26 @@ export default function TransactionHistory() {
   }, [transactions, filter, search]);
 
   async function handleExportCSV() {
+    if (exporting) return;
     setExporting(true);
     try {
-      const params = {};
+      const params = { format: 'csv' };
       if (dateFrom) params.from = dateFrom;
       if (dateTo) params.to = dateTo;
       if (asset) params.asset = asset;
       if (filter !== 'all') params.direction = filter;
-      const res = await api.get('/payments/export', { params, responseType: 'blob' });
+      const res = await api.get('/payments/history', { params, responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'transactions.csv';
+      a.download = `transactions_${new Date().toISOString().split('T')[0]}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      /* optional route */
+      alert('Export failed. Please try again.');
+    } finally {
+      setExporting(false);
     }
-    setExporting(false);
   }
 
   async function handleSubmitReport(e) {
@@ -231,7 +286,7 @@ export default function TransactionHistory() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50"
           >
             <Download size={14} />
-            {exporting ? '...' : t('history.export_csv')}
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : t('history.export_csv')}
           </button>
           <Filter size={18} className="text-gray-400" />
         </div>
@@ -315,6 +370,22 @@ export default function TransactionHistory() {
         ))}
       </div>
 
+      {/* Pagination info bar: page number and record count */}
+      {!loading && !error && transactions.length > 0 && (
+        <div
+          aria-live="polite"
+          className="flex items-center justify-between text-xs text-gray-500 mb-3 px-1"
+        >
+          <span>Page {currentPage}</span>
+          <span>
+            Showing {filtered.length} record{filtered.length !== 1 ? 's' : ''}
+            {hasMore && (
+              <span className="ml-1 text-gray-600">&middot; more available</span>
+            )}
+          </span>
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-3" aria-busy="true" aria-label="Loading transactions">
           {Array.from({ length: 6 }).map((_, i) => <TransactionCardSkeleton key={i} />)}
@@ -339,7 +410,11 @@ export default function TransactionHistory() {
         <>
           <div className="space-y-3">
             {filtered.map((tx) => (
-              <div key={tx.id} className="bg-gray-900 rounded-xl p-4">
+              <button
+                key={tx.id}
+                onClick={() => setSelectedTx(tx)}
+                className="w-full bg-gray-900 rounded-xl p-4 hover:bg-gray-800 transition-colors text-left"
+              >
                 <div className="flex items-start gap-3">
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
@@ -350,32 +425,6 @@ export default function TransactionHistory() {
                   >
                     {tx.direction === 'sent' ? <Send size={16} /> : <Download size={16} />}
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {tx.direction === 'sent'
-                      ? `${t('history.to')} ${truncateAddress(tx.recipient_wallet)}`
-                      : `${t('history.from')} ${truncateAddress(tx.sender_wallet)}`}
-                  </p>
-                  {tx.memo && <p className="text-xs text-gray-600 mt-0.5">"{tx.memo}"</p>}
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[tx.status] || STATUS_COLORS.pending}`}>
-                        {tx.status}
-                      </span>
-                      {tx.type === 'claimable_balance' && tx.status === 'pending' && (() => {
-                        const daysLeft = getDaysUntilExpiry(tx.created_at);
-                        if (daysLeft > 0 && daysLeft <= 7) {
-                          return (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">
-                              ⏰ Expires in {daysLeft}d
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-600">
-                        {new Date(tx.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-white capitalize">{tx.direction}</p>
@@ -395,18 +444,31 @@ export default function TransactionHistory() {
                     </p>
                     {tx.memo && <p className="text-xs text-gray-600 mt-0.5">&quot;{tx.memo}&quot;</p>}
                     <div className="flex items-center justify-between mt-2">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${
-                          STATUS_COLORS[tx.status] || STATUS_COLORS.pending
-                        }`}
-                      >
-                        {tx.status === 'confirming' ? (
-                          <span className="flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block" />
-                            Confirming...
-                          </span>
-                        ) : tx.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            STATUS_COLORS[tx.status] || STATUS_COLORS.pending
+                          }`}
+                        >
+                          {tx.status === 'confirming' ? (
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block" />
+                              Confirming...
+                            </span>
+                          ) : tx.status}
+                        </span>
+                        {tx.type === 'claimable_balance' && tx.status === 'pending' && (() => {
+                          const daysLeft = getDaysUntilExpiry(tx.created_at);
+                          if (daysLeft > 0 && daysLeft <= 7) {
+                            return (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400">
+                                ⏰ Expires in {daysLeft}d
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                       <div className="flex items-center gap-2">
                         <div className="text-right">
                           <span className="text-xs text-gray-500 block">
@@ -424,17 +486,21 @@ export default function TransactionHistory() {
                         </div>
                         {tx.tx_hash && (
                           <a
-                            href={`https://stellar.expert/explorer/testnet/tx/${tx.tx_hash}`}
+                            href={`https://stellar.expert/explorer/${process.env.REACT_APP_STELLAR_NETWORK || 'testnet'}/tx/${tx.tx_hash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-gray-500 hover:text-primary-400 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <ExternalLink size={12} aria-label="View transaction on Stellar Explorer" />
+                            <ExternalLink size={12} aria-hidden="true" />
                           </a>
                         )}
                         <button
                           type="button"
-                          onClick={() => setReportTx(tx)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReportTx(tx);
+                          }}
                           className="text-gray-500 hover:text-yellow-400 transition-colors"
                           aria-label="Report issue with this transaction"
                           title="Report Issue"
@@ -445,7 +511,7 @@ export default function TransactionHistory() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
           {hasMore && (
@@ -460,6 +526,107 @@ export default function TransactionHistory() {
           )}
         </>
       )}
+      {/* Transaction Detail Modal */}
+      {selectedTx && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-gray-800">
+              <h3 className="font-semibold text-white">Transaction Details</h3>
+              <button onClick={() => setSelectedTx(null)} className="text-gray-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Amount */}
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Amount</p>
+                <p className={`text-lg font-bold ${selectedTx.direction === 'sent' ? 'text-red-400' : 'text-primary-400'}`}>
+                  {selectedTx.direction === 'sent' ? '-' : '+'}
+                  {selectedTx.amount} {selectedTx.asset}
+                </p>
+              </div>
+
+              {/* Status */}
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Status</p>
+                <span className={`text-sm px-2 py-1 rounded-full inline-block ${STATUS_COLORS[selectedTx.status] || STATUS_COLORS.pending}`}>
+                  {selectedTx.status}
+                </span>
+              </div>
+
+              {/* Memo */}
+              {selectedTx.memo && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Memo</p>
+                  <p className="text-sm text-white font-mono break-all">{selectedTx.memo}</p>
+                </div>
+              )}
+
+              {/* Fee */}
+              {selectedTx.fee && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Fee</p>
+                  <p className="text-sm text-white">{selectedTx.fee} XLM</p>
+                </div>
+              )}
+
+              {/* From/To */}
+              <div>
+                <p className="text-xs text-gray-500 mb-1">
+                  {selectedTx.direction === 'sent' ? 'To' : 'From'}
+                </p>
+                <p className="text-sm text-white font-mono break-all">
+                  {selectedTx.direction === 'sent' ? selectedTx.recipient_wallet : selectedTx.sender_wallet}
+                </p>
+              </div>
+
+              {/* Date */}
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Date</p>
+                <p className="text-sm text-white">
+                  {new Date(selectedTx.ledger_close_time || selectedTx.created_at).toLocaleString()}
+                </p>
+              </div>
+
+              {/* Transaction Hash */}
+              {selectedTx.tx_hash && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Transaction Hash</p>
+                  <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+                    <span className="text-xs text-gray-300 font-mono flex-1 truncate">{truncateAddress(selectedTx.tx_hash, 12)}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedTx.tx_hash);
+                        setCopiedHash(true);
+                        setTimeout(() => setCopiedHash(false), 2000);
+                        toast.success('Hash copied');
+                      }}
+                      className="text-gray-400 hover:text-white transition-colors shrink-0"
+                      title="Copy hash"
+                    >
+                      {copiedHash ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Stellar Explorer Link */}
+              {selectedTx.tx_hash && (
+                <a
+                  href={`https://stellar.expert/explorer/testnet/tx/${selectedTx.tx_hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+                >
+                  <ExternalLink size={14} />
+                  View on Stellar Explorer
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Report Issue Modal */}
       {reportTx && (
         <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50 p-4">

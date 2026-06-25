@@ -16,6 +16,7 @@ const {
 } = require("../services/stellar");
 const webhook = require("../services/webhook");
 const cache = require("../utils/cache");
+const { sendTransactionEmail } = require("../services/email");
 const { checkVelocity, checkDailyLimit } = require("../services/fraudDetection");
 const { checkFraud, logFraudBlock } = require("../services/fraudDetection");
 const { parseHistoryFrom, parseHistoryTo, normalizeAsset, validateDateRange } = require("../utils/historyQuery");
@@ -180,6 +181,10 @@ async function getFeeStats(req, res, next) {
 }
 async function send(req, res, next) {
   const txId = uuidv4();
+  // declare these in outer scope so the catch block can reference them safely
+  let public_key, encrypted_secret_key, recipient_address, amount, asset, memo;
+  try {
+    ({ recipient_address, amount, asset = "XLM", memo } = req.body);
   let public_key;
   let recipient_address, amount, asset, memo, memo_type;
 
@@ -217,6 +222,7 @@ async function send(req, res, next) {
       }
 
       if (kycStatus !== "verified" && estimatedUSD >= KYC_THRESHOLD_USD) {
+        webhook.deliver("payment.failed", { code: "KYC_REQUIRED", error: "KYC verification required for transactions above $" + KYC_THRESHOLD_USD + " USD equivalent." }).catch(() => {});
         return res.status(403).json({
           error: "KYC verification required for transactions above $" + KYC_THRESHOLD_USD + " USD equivalent.",
           kyc_status: kycStatus,
@@ -241,6 +247,7 @@ async function send(req, res, next) {
     const walletResult = await db.query(walletQuery.text, walletQuery.values);
     if (!walletResult.rows[0]) return res.status(404).json({ error: "Wallet not found" });
 
+    ({ public_key, encrypted_secret_key } = walletResult.rows[0]);
     ({ public_key } = walletResult.rows[0]);
     const { encrypted_secret_key } = walletResult.rows[0];
 
@@ -250,6 +257,7 @@ async function send(req, res, next) {
 
     const overLimit = await dailyLimitExceeded(public_key, amount);
     if (overLimit) {
+      webhook.deliver("payment.failed", { code: "DAILY_LIMIT_EXCEEDED", error: `Daily send limit of ${DAILY_SEND_LIMIT} reached. Try again tomorrow.` }).catch(() => {});
       return res.status(400).json({
         error: `Daily send limit of ${DAILY_SEND_LIMIT} reached. Try again tomorrow.`,
         code: "DAILY_LIMIT_EXCEEDED",
@@ -262,13 +270,15 @@ async function send(req, res, next) {
       checkDailyLimit(public_key, amount, asset),
     ]);
     if (isSuspicious) {
+      webhook.deliver("payment.failed", { code: "FRAUD_BLOCKED", error: "Transaction limit reached. Please wait before sending again." }).catch(() => {});
       return res
         .status(429)
         .json({ error: "Transaction limit reached. Please wait before sending again." });
-    // Fraud protection
+    }
     const fraudCheck = await checkFraud(public_key, amount, asset);
     if (fraudCheck.blocked) {
       await logFraudBlock(public_key, fraudCheck.reason, amount, asset);
+      webhook.deliver("payment.failed", { code: "FRAUD_BLOCKED", error: fraudCheck.reason }).catch(() => {});
       return res.status(429).json({ error: fraudCheck.reason });
     }
 
@@ -279,6 +289,7 @@ async function send(req, res, next) {
       });
     }
     if (limitExceeded) {
+      webhook.deliver("payment.failed", { code: "DAILY_LIMIT_EXCEEDED", error: "Daily send limit reached. Try again later." }).catch(() => {});
       return res
         .status(429)
         .json({ error: "Daily send limit reached. Try again later.", code: "DAILY_LIMIT_EXCEEDED" });
@@ -302,11 +313,6 @@ async function send(req, res, next) {
     const ledger_close_time = await fetchLedgerCloseTime(ledger);
 
     // Save to DB
-    const feeAmount = calculateFee(amount);
-    await db.query(
-      `INSERT INTO transactions (id, sender_wallet, recipient_wallet, amount, asset, memo, tx_hash, status, fee_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'completed',$8)`,
-      [txId, public_key, recipient_address, amount, asset, memo || null, transactionHash, feeAmount],
     const txStatus = type === "claimable_balance" ? "pending_claim" : "confirming";
     await db.query(
       `INSERT INTO transactions (id, sender_wallet, recipient_wallet, amount, asset, memo, memo_type, tx_hash, status, claimable_balance_id, request_id, is_encrypted, encrypted_memo, ledger_close_time)
@@ -347,6 +353,18 @@ async function send(req, res, next) {
       webhook.deliver("payment.received", txData).catch(() => {});
     }
 
+    // Fire-and-forget email notifications
+    const emailTxData = { amount, asset, senderAddress: public_key, recipientAddress: recipient_address, memo: memo || null, txHash: transactionHash };
+    db.query("SELECT email FROM users WHERE id = $1", [req.user.userId])
+      .then(({ rows }) => rows[0] && sendTransactionEmail(rows[0].email, "sent", emailTxData))
+      .catch(() => {});
+    db.query(
+      "SELECT u.email FROM users u JOIN wallets w ON w.user_id = u.id WHERE w.public_key = $1 LIMIT 1",
+      [recipient_address],
+    )
+      .then(({ rows }) => rows[0] && sendTransactionEmail(rows[0].email, "received", emailTxData))
+      .catch(() => {});
+
     res.json({
       message: type === "claimable_balance" ? "Claimable balance created" : "Payment sent successfully",
       transaction: {
@@ -361,6 +379,11 @@ async function send(req, res, next) {
       },
     });
   } catch (err) {
+    // Do not persist a failed transaction here; let caller decide and avoid
+    // creating records when Stellar submission fails during business logic.
+    if (err.status === 400 || err.status === 500) {
+      webhook.deliver('payment.failed', { error: err.message }).catch(() => {});
+      return res.status(err.status).json({ error: err.message });
     // Issue #243: Insert a failed transaction record when sendPayment throws
     // and the sender wallet is known, to maintain a full audit trail.
     if (public_key) {
@@ -372,7 +395,9 @@ async function send(req, res, next) {
     }
 
     if (err.status) {
-      webhook.deliver("payment.failed", { error: err.message }).catch(() => {});
+      const failedPayload = { error: err.message };
+      if (err.payload?.code) failedPayload.code = err.payload.code;
+      webhook.deliver("payment.failed", failedPayload).catch(() => {});
       return res.status(err.status).json({ error: err.message, ...(err.payload || {}) });
     }
     if (err.response?.data) {

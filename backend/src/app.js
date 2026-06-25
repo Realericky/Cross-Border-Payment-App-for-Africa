@@ -35,7 +35,9 @@ const disputeRoutes = require('./routes/disputes');
 const pricesRoutes = require('./routes/prices');
 const channelsRoutes = require('./routes/channels');
 const contractsRoutes = require('./routes/contracts');
+const ledgerRoutes = require('./routes/ledger');
 const ipAllowlist = require('./middleware/ipAllowlist');
+const geoRestriction = require('./middleware/geoRestriction');
 
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
@@ -86,9 +88,9 @@ app.use('/api/auth', authLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/payment-requests', paymentRequestRoutes);
-app.use('/api/scheduled-payments', scheduledPaymentRoutes);
+app.use('/api/payments', geoRestriction, paymentRoutes);
+app.use('/api/payment-requests', geoRestriction, paymentRequestRoutes);
+app.use('/api/scheduled-payments', geoRestriction, scheduledPaymentRoutes);
 app.use('/api/anchor', anchorRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/dex', dexRoutes);
@@ -102,11 +104,14 @@ app.use('/api/admin', ipAllowlist, adminRoutes);
 app.use('/api/prices', pricesRoutes);
 app.use('/api/channels', channelsRoutes);
 app.use('/api/contracts', contractsRoutes);
+app.use('/api/ledger', ledgerRoutes);
 app.use('/api/webhooks', webhookRoutes);
-app.use('/api/dev', toolsRoutes);
+app.use('/api/tools', toolsRoutes);
+app.use('/api/dev', toolsRoutes); // legacy alias
 app.use('/api/assets', assetsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/.well-known/stellar', sep10Routes);
+app.use('/api/sep10', sep10Routes);
 app.use('/api/sep31', sep31Routes);
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev', devRoutes);
@@ -174,7 +179,7 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(specs));
  * /health:
  *   get:
  *     summary: Public liveness probe
- *     description: Returns only the overall status. Use /api/admin/health for full diagnostics.
+ *     description: Returns the overall status and pool utilization. Use /api/admin/health for full diagnostics.
  *     tags: [Health]
  *     responses:
  *       200:
@@ -187,13 +192,22 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(specs));
  *                 status:
  *                   type: string
  *                   enum: [ok, degraded]
+ *                 pool:
+ *                   type: object
+ *                   properties:
+ *                     total: { type: integer }
+ *                     idle: { type: integer }
+ *                     waiting: { type: integer }
  *       503:
  *         description: Service is degraded
  */
 app.get('/health', async (req, res) => {
   try {
-    const { status } = await runHealthChecks();
-    res.status(status === 'ok' ? 200 : 503).json({ status });
+    const health = await runHealthChecks();
+    res.status(health.status === 'ok' ? 200 : 503).json({
+      status: health.status,
+      pool: health.pool,
+    });
   } catch {
     res.status(503).json({ status: 'degraded' });
   }

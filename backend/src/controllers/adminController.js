@@ -1,12 +1,13 @@
 const db = require('../db');
 const { getStellarStats } = require('../services/stellar');
+const { attestKyc, revokeKyc } = require('../services/kycAttestation');
+const audit = require('../services/audit');
 
 // Cache for Stellar stats (10 seconds)
 let stellarStatsCache = null;
 let stellarStatsCacheTime = 0;
 const CACHE_DURATION = 10000; // 10 seconds
 const { clawbackAsset } = require('../services/stellar');
-const audit = require('../services/audit');
 
 async function getStats(req, res, next) {
   try {
@@ -30,7 +31,15 @@ async function getUsers(req, res, next) {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
     const offset = (page - 1) * limit;
-    const search = req.query.search ? `%${req.query.search}%` : null;
+    let search = req.query.search || null;
+    if (search) {
+      if (search.length > 100) {
+        return res.status(400).json({ error: 'Search string exceeds maximum length of 100 characters' });
+      }
+      // Escape PostgreSQL special pattern characters
+      search = search.replace(/[%_\\]/g, '\\$&');
+      search = `%${search}%`;
+    }
 
     const params = search ? [search, search, limit, offset] : [limit, offset];
     const where = search ? `WHERE u.full_name ILIKE $1 OR u.email ILIKE $2` : '';
@@ -96,7 +105,7 @@ async function getTransactions(req, res, next) {
   }
 }
 
-module.exports = { getStats, getUsers, getTransactions, getStellarNetworkStats };
+
 
 async function getStellarNetworkStats(req, res, next) {
   try {
@@ -115,7 +124,10 @@ async function getStellarNetworkStats(req, res, next) {
     stellarStatsCacheTime = now;
 
     res.json(stats);
-module.exports = { getStats, getUsers, getTransactions, clawback };
+  } catch (err) {
+    next(err);
+  }
+}
 
 /**
  * POST /api/admin/clawback
@@ -162,9 +174,6 @@ async function clawback(req, res, next) {
 
 module.exports = { getStats, getUsers, getTransactions, clawback };
 
-
-
-const { attestKyc, revokeKyc } = require('../services/kycAttestation');
 
 /**
  * POST /api/admin/kyc/:userId/approve
@@ -267,7 +276,7 @@ async function revokeKYC(req, res, next) {
   }
 }
 
-module.exports = { getStats, getUsers, getTransactions, clawback, approveKYC, revokeKYC };
+
 
 const { getAccountFlags, setAccountFlags } = require('../services/stellar');
 
@@ -570,6 +579,70 @@ async function getContractEventsEndpoint(req, res, next) {
 }
 
 /**
+ * GET /api/admin/contracts/events
+ * Query contract events across all contracts with optional filtering.
+ * Query params: contractAddress, eventType, limit, offset, from, to
+ */
+async function getContractEventsGlobalEndpoint(req, res, next) {
+  try {
+    const { contractAddress, eventType, limit, offset, from, to } = req.query;
+
+    const maxLimit = Math.min(parseInt(limit) || 100, 500);
+    const offsetVal = parseInt(offset) || 0;
+
+    const params = [];
+    let query = 'SELECT * FROM contract_events WHERE 1=1';
+    let countQuery = 'SELECT COUNT(*) AS count FROM contract_events WHERE 1=1';
+
+    if (contractAddress) {
+      params.push(contractAddress);
+      const cond = ` AND contract_id = $${params.length}`;
+      query += cond;
+      countQuery += cond;
+    }
+
+    if (eventType) {
+      params.push(eventType);
+      const cond = ` AND event_type = $${params.length}`;
+      query += cond;
+      countQuery += cond;
+    }
+
+    if (from) {
+      params.push(new Date(from).toISOString());
+      const cond = ` AND created_at >= $${params.length}`;
+      query += cond;
+      countQuery += cond;
+    }
+
+    if (to) {
+      params.push(new Date(to).toISOString());
+      const cond = ` AND created_at <= $${params.length}`;
+      query += cond;
+      countQuery += cond;
+    }
+
+    const countParams = [...params];
+    params.push(maxLimit, offsetVal);
+    query += ` ORDER BY ledger_sequence DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+    const [result, countResult] = await Promise.all([
+      db.query(query, params),
+      db.query(countQuery, countParams),
+    ]);
+
+    res.json({
+      events: result.rows,
+      total: parseInt(countResult.rows[0].count),
+      limit: maxLimit,
+      offset: offsetVal,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * POST /api/admin/contracts/:contractId/events/index
  * Manually trigger event indexing for a specific contract.
  */
@@ -606,5 +679,6 @@ module.exports = {
   executeContractUpgrade,
   getContractUpgradeStatus,
   getContractEventsEndpoint,
+  getContractEventsGlobalEndpoint,
   indexContractEventsEndpoint
 };

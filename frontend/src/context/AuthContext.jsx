@@ -58,12 +58,15 @@ export function AuthProvider({ children }) {
       /* still clear local session */
     }
     tokenStore.clear();
+    localStorage.removeItem('afripay_slippage');
     setUser(null);
     Sentry.setUser(null);
   };
 
+  const updateUser = (fields) => setUser((prev) => (prev ? { ...prev, ...fields } : prev));
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
