@@ -322,13 +322,17 @@ impl AgentEscrowContract {
             panic!("unauthorized: caller is not admin");
         }
 
+        if amount <= 0 {
+            panic!("withdrawal amount must be greater than zero");
+        }
+
         let fees: i128 = env
             .storage()
             .persistent()
             .get(&DataKey::Fees)
             .unwrap_or(0);
         if amount > fees {
-            panic!("insufficient accumulated fees");
+            panic!("withdrawal amount exceeds accumulated fees");
         }
 
         let usdc: Address = env
