@@ -169,6 +169,35 @@ export default function SendMoney() {
       .catch(() => {});
   }, []);
 
+  // Fee estimation preview (Issue #641)
+  const [feePreview, setFeePreview] = useState(null);
+  const [feePreviewLoading, setFeePreviewLoading] = useState(false);
+  const [feePreviewError, setFeePreviewError] = useState(false);
+  useEffect(() => {
+    const amount = parseFloat(form.amount);
+    if (!amount || amount <= 0) {
+      setFeePreview(null);
+      setFeePreviewError(false);
+      return;
+    }
+    setFeePreviewLoading(true);
+    setFeePreviewError(false);
+    const timer = setTimeout(() => {
+      api
+        .get('/payments/fee-stats')
+        .then((r) => {
+          const feeBps = r.data?.fee_bps ?? 50;
+          const networkFeeXlm = r.data?.fee_xlm ?? 0.00001;
+          const platformFee = (amount * feeBps) / 10000;
+          const net = amount - platformFee;
+          setFeePreview({ amount, platformFee, feeBps, networkFeeXlm, net, asset: form.asset });
+        })
+        .catch(() => setFeePreviewError(true))
+        .finally(() => setFeePreviewLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [form.amount, form.asset]);
+
   // Warn the user before closing/refreshing the tab when the form has data
   useBeforeUnload(
     React.useCallback(
@@ -926,6 +955,41 @@ export default function SendMoney() {
           {feeXLM && form.asset !== 'XLM' && availableXlm !== null && availableXlm < feeXLM && (
             <div className="mt-2 bg-yellow-500/10 border border-yellow-500/40 rounded-xl px-4 py-3 text-yellow-300 text-sm">
               ⚠️ Low XLM balance. You need at least {feeXLM} XLM to cover the network fee.
+            </div>
+          )}
+          {/* Fee estimation preview (Issue #641) */}
+          {(feePreviewLoading || feePreview || feePreviewError) && (
+            <div className="mt-3 bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-3 text-sm space-y-1.5">
+              {feePreviewLoading ? (
+                <>
+                  <div className="skeleton h-3 w-32 rounded" />
+                  <div className="skeleton h-3 w-24 rounded" />
+                  <div className="skeleton h-3 w-28 rounded" />
+                </>
+              ) : feePreviewError ? (
+                <p className="text-gray-400 text-xs">
+                  Fee estimate unavailable — final fee will be shown at confirmation.
+                </p>
+              ) : feePreview ? (
+                <>
+                  <div className="flex justify-between text-gray-400">
+                    <span>Gross amount</span>
+                    <span className="text-white">{feePreview.amount.toFixed(7)} {feePreview.asset}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-400">
+                    <span>Platform fee ({(feePreview.feeBps / 100).toFixed(2)}%)</span>
+                    <span className="text-red-400">− {feePreview.platformFee.toFixed(7)} {feePreview.asset}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-400">
+                    <span>Network fee (est.)</span>
+                    <span className="text-red-400">~ {feePreview.networkFeeXlm} XLM</span>
+                  </div>
+                  <div className="flex justify-between font-semibold border-t border-gray-700 pt-1.5">
+                    <span className="text-gray-300">Recipient receives</span>
+                    <span className="text-green-400">{feePreview.net.toFixed(7)} {feePreview.asset}</span>
+                  </div>
+                </>
+              ) : null}
             </div>
           )}
           {belowMinBalance && (
