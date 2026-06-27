@@ -699,8 +699,33 @@ export default function Dashboard() {
         </div>
 
         {transactions.length === 0 ? (
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-6 text-center text-gray-500 text-sm shadow-sm">
-            {t('dashboard.no_transactions')}
+          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-8 text-center shadow-sm">
+            <div className="w-16 h-16 bg-primary-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Send size={28} className="text-primary-500" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              No transactions yet
+            </h3>
+            <p className="text-gray-500 text-sm mb-6 max-w-xs mx-auto">
+              Send your first payment or add funds to get started with AfriPay.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => navigate(`/send${activeWalletId ? `?wallet_id=${activeWalletId}` : ''}`)}
+                className="bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2.5 px-5 rounded-xl text-sm transition-colors flex items-center gap-2"
+              >
+                <Send size={16} />
+                Send Money
+              </button>
+              <button
+                onClick={() => handleAnchorAction('deposit')}
+                disabled={anchorLoading}
+                className="bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-semibold py-2.5 px-5 rounded-xl text-sm transition-colors flex items-center gap-2 border border-gray-200 dark:border-gray-700"
+              >
+                <Plus size={16} />
+                Add Funds
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">
