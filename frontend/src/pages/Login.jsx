@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff, ArrowLeft, ShieldCheck } from 'lucide-react';
@@ -10,6 +10,7 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -36,7 +37,10 @@ export default function Login() {
       await login(form.email, form.password);
       // Persist remember-me preference
       localStorage.setItem('afripay_remember_me', rememberMe.toString());
-      navigate('/dashboard');
+      const redirectParam = searchParams.get('redirect');
+      const redirect = redirectParam || sessionStorage.getItem('afripay_redirect');
+      sessionStorage.removeItem('afripay_redirect');
+      navigate(redirect || '/dashboard');
     } catch (err) {
       const data = err.response?.data;
       if (err.response?.status === 403 && data?.requires_2fa) {

@@ -74,7 +74,12 @@ export default function Register() {
         setRegisteredPhone(form.phone);
         setShowPhoneVerify(true);
       } else {
-        navigate('/login');
+        const redirect = sessionStorage.getItem('afripay_redirect');
+        if (redirect) {
+          navigate('/login?redirect=' + encodeURIComponent(redirect));
+        } else {
+          navigate('/login');
+        }
       }
     } catch (err) {
       toast.error(err.response?.data?.error || t('register.error'));

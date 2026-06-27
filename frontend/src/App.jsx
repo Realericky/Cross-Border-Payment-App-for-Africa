@@ -39,13 +39,18 @@ const LoadingFallback = () => (
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 transition-colors duration-200" role="status" aria-label="Loading">
         <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
-  return user ? children : <Navigate to="/login" replace />;
+  if (!user) {
+    sessionStorage.setItem('afripay_redirect', location.pathname + location.search);
+    return <Navigate to="/login" replace />;
+  }
+  return children;
 }
 
 function PublicRoute({ children }) {
