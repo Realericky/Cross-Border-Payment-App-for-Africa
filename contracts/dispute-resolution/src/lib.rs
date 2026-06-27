@@ -103,6 +103,7 @@ pub struct EvtDisputeResolved {
 #[contracttype]
 pub struct EvtDisputeExpired {
     pub dispute_id: u64,
+    pub sender: Address,
     pub refund_amount: i128,
 }
 
@@ -370,6 +371,7 @@ impl DisputeResolutionContract {
             (Symbol::new(&env, "DisputeExpired"),),
             EvtDisputeExpired {
                 dispute_id,
+                sender: dispute.sender.clone(),
                 refund_amount: dispute.amount,
             },
         );
