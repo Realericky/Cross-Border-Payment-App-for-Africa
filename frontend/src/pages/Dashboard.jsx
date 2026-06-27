@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCurrency } from '../context/CurrencyContext';
 import { BalanceCardSkeleton, TransactionRowSkeleton } from '../components/Skeleton';
 import api from '../utils/api';
 import { truncateAddress } from '../utils/currency';
@@ -118,7 +119,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [selectedCurrency, setSelectedCurrency] = useState('XLM');
+  const { displayCurrency: selectedCurrency, setDisplayCurrency: setSelectedCurrency } = useCurrency();
   const [funding, setFunding] = useState(false);
   const [anchorLoading, setAnchorLoading] = useState(false);
   const [anchorAction, setAnchorAction] = useState(null);
@@ -733,13 +734,15 @@ export default function Dashboard() {
           )}
 
           {/* Fiat currency selector */}
-          <div className="flex gap-2 flex-wrap mb-3">
+          <div className="flex gap-2 flex-wrap mb-3" role="group" aria-label="Display currency">
             {currencies
               .filter((c) => c.code !== 'XLM')
               .map((c) => (
                 <button
                   key={c.code}
                   onClick={() => setSelectedCurrency(c.code)}
+                  aria-label={`Display in ${c.name}`}
+                  aria-pressed={selectedCurrency === c.code}
                   className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
                     selectedCurrency === c.code
                       ? 'bg-white text-primary-700 font-semibold'

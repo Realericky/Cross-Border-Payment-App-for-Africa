@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-route
 import { Toaster } from "react-hot-toast";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { CurrencyProvider } from "./context/CurrencyContext";
 
 import Welcome from "./pages/Welcome";
 import Login from "./pages/Login";
@@ -174,6 +175,7 @@ export default function App() {
       )}
       <AuthProvider>
         <ThemeProvider>
+          <CurrencyProvider>
           <BrowserRouter>
             <Toaster
               position="top-center"
@@ -186,3 +188,10 @@ export default function App() {
               }}
             />
             <AppRoutes />
+          </BrowserRouter>
+          </CurrencyProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </>
+  );
+}
