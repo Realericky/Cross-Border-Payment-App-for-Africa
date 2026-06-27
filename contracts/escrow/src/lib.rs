@@ -3,6 +3,9 @@ use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, 
 
 mod test;
 
+/// Semantic version of this contract. Bumped on every upgrade.
+pub const CONTRACT_VERSION: u32 = 1;
+
 #[derive(Clone)]
 #[contracttype]
 pub struct EscrowCreated {
@@ -55,6 +58,7 @@ pub struct EscrowArchived {
 #[contracttype]
 pub struct Upgraded {
     pub new_wasm_hash: BytesN<32>,
+    pub contract_version: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -193,7 +197,10 @@ impl EscrowContract {
 
         env.events().publish(
             (Symbol::new(&env, "Upgraded"),),
-            Upgraded { new_wasm_hash },
+            Upgraded {
+                new_wasm_hash,
+                contract_version: CONTRACT_VERSION,
+            },
         );
     }
 
