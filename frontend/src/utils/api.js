@@ -1,12 +1,18 @@
 import axios from 'axios';
+import toast from 'react-hot-toast';
 import { enqueuePayment } from './offlineDB';
 import { tokenStore } from '../context/AuthContext';
 
 const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+const DEFAULT_TIMEOUT = 30000;
+const envTimeout = parseInt(process.env.REACT_APP_API_TIMEOUT_MS, 10);
+const timeout = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : DEFAULT_TIMEOUT;
+
 const api = axios.create({
   baseURL,
   withCredentials: true, // sends httpOnly refresh-token cookie automatically
+  timeout,
 });
 
 /** Separate client for /auth/refresh — avoids triggering the 401 retry loop */
@@ -69,6 +75,20 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.request.use(
+  (config) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return Promise.reject({
+        isOfflineError: true,
+        message: 'No internet connection',
+        config,
+      });
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 /**
  * Offline payment interceptor
  *
@@ -111,8 +131,20 @@ api.interceptors.response.use(
       });
     }
 
+    if (!err.response && typeof navigator !== 'undefined' && !navigator.onLine) {
+      return Promise.reject({
+        isOfflineError: true,
+        message: 'No internet connection',
+        config: err.config,
+      });
+    }
+
     const originalRequest = err.config;
     if (!originalRequest || !shouldAttemptRefresh(err, originalRequest)) {
+      if (err.code === 'ECONNABORTED' && err.message?.includes('timeout')) {
+        toast.error('Request timed out. Please check your connection.');
+        return Promise.reject(err);
+      }
       if (err.response?.status === 401) {
         const url = originalRequest ? requestUrl(originalRequest) : '';
         const silent401 =
