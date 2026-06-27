@@ -127,6 +127,7 @@ export default function Dashboard() {
   const [fromCache, setFromCache] = useState(false);
   const [showZeroBalances, setShowZeroBalances] = useState(false);
   const [walletError, setWalletError] = useState(false);
+  const [transactionsError, setTransactionsError] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
   const { currencies, convertFromXLM, usingApproximateRates } = useExchangeRates();
   const { isOnline } = useOnlineStatus();
@@ -214,6 +215,7 @@ export default function Dashboard() {
       setScheduledLoading(false);
       setFromCache(false);
       setWalletError(walletsData.length === 0);
+      setTransactionsError(false);
 
       await Promise.all([setCacheEntry('wallets', walletsData), setCacheEntry('history', txData)]).catch(
         () => {}
@@ -235,6 +237,9 @@ export default function Dashboard() {
           setTxError(false);
         } else {
           setTxError(true);
+          setTransactionsError(false);
+        } else {
+          setTransactionsError(true);
         }
         if (!cachedWallets?.data) {
           setWallets([]);
@@ -246,6 +251,7 @@ export default function Dashboard() {
         setWallets([]);
         setActiveWalletId(null);
         setWalletError(true);
+        setTransactionsError(true);
         toast.error('Failed to load wallet data');
       }
     } finally {
@@ -993,6 +999,26 @@ export default function Dashboard() {
               className="text-primary-500 font-medium hover:underline"
             >
               {t('common.retry')}
+        {loading && transactions.length === 0 ? (
+          <div className="space-y-2" data-testid="transactions-skeleton" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <TransactionRowSkeleton key={i} />
+            ))}
+          </div>
+        ) : transactionsError && transactions.length === 0 ? (
+          <div
+            role="alert"
+            className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-4 text-red-300 shadow-sm"
+          >
+            <p className="text-sm font-medium">Could not load recent activity.</p>
+            <button
+              type="button"
+              onClick={() => loadDashboard(true)}
+              disabled={refreshing}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-500/20 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/30 disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+              Retry
             </button>
           </div>
         ) : transactions.length === 0 ? (

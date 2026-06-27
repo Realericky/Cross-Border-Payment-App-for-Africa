@@ -95,6 +95,21 @@ describe('Dashboard', () => {
     expect(document.querySelector('.animate-spin')).toBeInTheDocument();
   });
 
+  test('shows transaction skeleton rows during the initial fetch', () => {
+    api.get.mockReturnValue(new Promise(() => {}));
+    renderDashboard();
+    expect(screen.getByTestId('transactions-skeleton')).toBeInTheDocument();
+  });
+
+  test('replaces transaction skeletons with a retryable error state on fetch failure', async () => {
+    api.get.mockRejectedValue(new Error('history unavailable'));
+
+    renderDashboard();
+
+    expect(await screen.findByText('Could not load recent activity.')).toBeInTheDocument();
+    expect(screen.queryByTestId('transactions-skeleton')).not.toBeInTheDocument();
+  });
+
   test('displays XLM balance after loading', async () => {
     api.get
       .mockResolvedValueOnce(walletResponse)
